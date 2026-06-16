@@ -24,7 +24,7 @@ const DB_PATH = "/ambulatorio.json";
 
 async function saveAll(schedules, notifications) {
   try {
-    await fetch(FIREBASE_URL + DB_PATH, {
+    await fetch(FIREBASE_URL+"/ambulatorio.json", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ schedules, notifications }),
@@ -34,7 +34,7 @@ async function saveAll(schedules, notifications) {
 
 async function loadAll() {
   try {
-    const r = await fetch(FIREBASE_URL + DB_PATH);
+    const r = await fetch(FIREBASE_URL+"/ambulatorio.json");
     if (!r.ok) return null;
     return await r.json();
   } catch(e) { return null; }
@@ -89,7 +89,7 @@ const ABSENCE_REASONS = ["Ferie","Congresso","Malattia","Altro"];
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 const getDoctor = id => DOCTORS.find(d => d.id === id);
 const pad = n => String(n).padStart(2,"0");
-const dateKey = (y,m,d) => `${y}-${pad(m+1)}-${pad(d)}`;
+const dateKey = (y,m,d) => y+"-"+pad(m+1)+"-"+pad(d);
 const todayKey = dateKey(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
 function generateMonthSlots(year, month) {
@@ -127,7 +127,7 @@ const hasEmptySlots = md => Object.values(md).some(d=>d.slots.some(s=>!s.doctorI
 function getWeeksInRange(allSchedules) {
   const allWorkdays = [];
   MONTHS.forEach(({year,month}) => {
-    const md = allSchedules[`${year}-${month}`];
+    const md = allSchedules[year+"-"+month];
     Object.keys(md).filter(k=>!md[k].weekend&&!md[k].holiday&&k>=todayKey).sort().forEach(k=>allWorkdays.push(k));
   });
   const weeks = {};
@@ -146,7 +146,7 @@ function computeStats(allSchedules, notifications) {
   const stats = {};
   DOCTORS.forEach(d => { stats[d.id] = { name:d.name, color:d.color, initials:d.initials, byMonth:{}, total:0, swapsRequested:0, swapsReceived:0, absences:0 }; });
   MONTHS.forEach(({year,month}) => {
-    const mKey=`${year}-${month}`, md=allSchedules[mKey], mLabel=`${MONTH_SHORT[month]} ${year}`;
+    const mKey=year+"-"+month, md=allSchedules[mKey], mLabel=MONTH_SHORT[month]+" "+year;
     Object.values(md).forEach(day => {
       day.slots.forEach(slot => {
         if (slot.doctorId) {
@@ -174,7 +174,7 @@ function App() {
   const [selectedMonthIdx, setMonthIdx] = useState(0);
   const [allSchedules, setAllSchedules] = useState(() => {
     const init = {};
-    MONTHS.forEach(({year,month}) => { init[`${year}-${month}`] = generateMonthSlots(year,month); });
+    MONTHS.forEach(({year,month}) => { init[year+"-"+month] = generateMonthSlots(year,month); });
     return init;
   });
   const [storageLoaded, setStorageLoaded] = useState(false);
@@ -186,7 +186,7 @@ function App() {
   const [selectedDate, setSelectedDate]   = useState(null);
 
   const me       = getDoctor(loggedInId);
-  const curKey   = `${MONTHS[selectedMonthIdx].year}-${MONTHS[selectedMonthIdx].month}`;
+  const curKey   = MONTHS[selectedMonthIdx].year+"-"+MONTHS[selectedMonthIdx].month;
   const monthData = allSchedules[curKey];
   const unread    = notifications.filter(n=>!n.read).length;
   const emptyAlert = hasEmptySlots(monthData);
@@ -209,7 +209,7 @@ function App() {
           setAllSchedules(prev => {
             const merged = JSON.parse(JSON.stringify(prev));
             MONTHS.forEach(({year,month}) => {
-              const mKey = `${year}-${month}`;
+              const mKey = year+"-"+month;
               if (data.schedules[mKey]) {
                 Object.keys(merged[mKey]).forEach(dk => {
                   if (data.schedules[mKey][dk]) merged[mKey][dk].slots = data.schedules[mKey][dk].slots;
@@ -231,7 +231,7 @@ function App() {
         setAllSchedules(prev => {
           const merged = JSON.parse(JSON.stringify(prev));
           MONTHS.forEach(({year,month}) => {
-            const mKey = `${year}-${month}`;
+            const mKey = year+"-"+month;
             if (data.schedules[mKey]) {
               Object.keys(merged[mKey]).forEach(dk => {
                 if (data.schedules[mKey][dk]) merged[mKey][dk].slots = data.schedules[mKey][dk].slots;
@@ -254,7 +254,7 @@ function App() {
   function refuseRange(fromDate, toDate, reason) {
     updateSchedule(next => {
       MONTHS.forEach(({year,month}) => {
-        const mKey=`${year}-${month}`;
+        const mKey=year+"-"+month;
         Object.keys(next[mKey]).forEach(dk => {
           if (dk<fromDate||dk>toDate) return;
           next[mKey][dk].slots.forEach(slot => {
@@ -278,7 +278,7 @@ function App() {
   function getSlotsOfDoctor(doctorId) {
     const result=[];
     MONTHS.forEach(({year,month}) => {
-      const mKey=`${year}-${month}`;
+      const mKey=year+"-"+month;
       Object.keys(allSchedules[mKey]).forEach(dk => {
         allSchedules[mKey][dk].slots.forEach((s,si) => {
           if (s.doctorId===doctorId) result.push({mKey,dk,si,dayInfo:allSchedules[mKey][dk],slot:s});
@@ -293,8 +293,8 @@ function App() {
     const fi=SHIFT_LABELS[fromSlot.shift], ti=SHIFT_LABELS[toSlotInfo.slot.shift], fd=monthData[fromDk];
     setNotifications(prev => [{
       id:Date.now(), type:"swap",
-      text:`🔄 ${fromDoc.name} propone cambio con ${toDoc.name}`,
-      detail:`${fd.dayName} ${fd.day} · ${fromSlot.period} · ${fi.label}  ⇄  ${toSlotInfo.dayInfo.dayName} ${toSlotInfo.dayInfo.day} · ${toSlotInfo.slot.period} · ${ti.label}`,
+      text:"🔄 "+fromDoc.name+" propone cambio con "+toDoc.name,
+      detail:fd.dayName+" "+fd.day+" · "+fromSlot.period+" · "+fi.label+"  ⇄  "+toSlotInfo.dayInfo.dayName+" "+toSlotInfo.dayInfo.day+" · "+toSlotInfo.slot.period+" · "+ti.label,
       fromId:fromSlot.doctorId, toId:toSlotInfo.slot.doctorId,
       fromDk, fromSi, fromMKey:curKey,
       toDk:toSlotInfo.dk, toSi:toSlotInfo.si, toMKey:toSlotInfo.mKey,
@@ -394,7 +394,7 @@ function LoginScreen({onLogin}) {
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:7,marginBottom:18}}>
           {DOCTORS.map(d=>(
-            <button key={d.id} onClick={()=>d.active&&setSelected(d.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 15px",borderRadius:11,border:`2px solid ${selected===d.id?d.color:"#E8EEF5"}`,background:selected===d.id?`${d.color}18`:"#FAFAFA",cursor:d.active?"pointer":"not-allowed",opacity:d.active?1:0.45}}>
+            <button key={d.id} onClick={()=>d.active&&setSelected(d.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"11px 15px",borderRadius:11,border:"2px solid "+(selected===d.id?d.color:"#E8EEF5"),background:selected===d.id?d.color+"18":"#FAFAFA",cursor:d.active?"pointer":"not-allowed",opacity:d.active?1:0.45}}>
               <div style={{width:36,height:36,borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:13,flexShrink:0}}>{d.initials}</div>
               <div>
                 <div style={{fontWeight:700,fontSize:13,color:"#1A2744"}}>{d.name}</div>
@@ -415,8 +415,8 @@ function CalendarView({monthData,allSchedules,selectedMonthIdx,setMonthIdx,selec
   return (
     <main style={{padding:"14px 16px",maxWidth:1000,margin:"0 auto"}}>
       <div style={{display:"flex",gap:6,marginBottom:12,alignItems:"center"}}>
-        <button onClick={()=>setCalView("month")} style={{padding:"5px 14px",borderRadius:20,border:`2px solid ${calView==="month"?"#1A2744":"#E8EEF5"}`,background:calView==="month"?"#1A2744":"#fff",color:calView==="month"?"#fff":"#1A2744",fontWeight:700,fontSize:11,cursor:"pointer"}}>📅 Mese</button>
-        <button onClick={()=>setCalView("week")} style={{padding:"5px 14px",borderRadius:20,border:`2px solid ${calView==="week"?"#1A2744":"#E8EEF5"}`,background:calView==="week"?"#1A2744":"#fff",color:calView==="week"?"#fff":"#1A2744",fontWeight:700,fontSize:11,cursor:"pointer"}}>📋 Settimana</button>
+        <button onClick={()=>setCalView("month")} style={{padding:"5px 14px",borderRadius:20,border:"2px solid "+(calView==="month"?"#1A2744":"#E8EEF5"),background:calView==="month"?"#1A2744":"#fff",color:calView==="month"?"#fff":"#1A2744",fontWeight:700,fontSize:11,cursor:"pointer"}}>📅 Mese</button>
+        <button onClick={()=>setCalView("week")} style={{padding:"5px 14px",borderRadius:20,border:"2px solid "+(calView==="week"?"#1A2744":"#E8EEF5"),background:calView==="week"?"#1A2744":"#fff",color:calView==="week"?"#fff":"#1A2744",fontWeight:700,fontSize:11,cursor:"pointer"}}>📋 Settimana</button>
       </div>
       <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:10}}>
         {DOCTORS.map(d=>(
@@ -429,8 +429,8 @@ function CalendarView({monthData,allSchedules,selectedMonthIdx,setMonthIdx,selec
       {calView==="month"&&<>
         <div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>
           {MONTHS.map((m,i)=>{
-            const ec=countEmptySlots(allSchedules[`${m.year}-${m.month}`]);
-            return <button key={i} onClick={()=>{setMonthIdx(i);setSelectedDate(null);}} style={{padding:"5px 11px",borderRadius:20,border:`2px solid ${selectedMonthIdx===i?"#1A2744":"#E8EEF5"}`,background:selectedMonthIdx===i?"#1A2744":"#fff",color:selectedMonthIdx===i?"#fff":"#1A2744",fontWeight:600,fontSize:11,cursor:"pointer",position:"relative"}}>
+            const ec=countEmptySlots(allSchedules[m.year+"-"+m.month]);
+            return <button key={i} onClick={()=>{setMonthIdx(i);setSelectedDate(null);}} style={{padding:"5px 11px",borderRadius:20,border:"2px solid "+(selectedMonthIdx===i?"#1A2744":"#E8EEF5"),background:selectedMonthIdx===i?"#1A2744":"#fff",color:selectedMonthIdx===i?"#fff":"#1A2744",fontWeight:600,fontSize:11,cursor:"pointer",position:"relative"}}>
               {m.label.split(" ")[0]}{ec>0&&<span style={{position:"absolute",top:-5,right:-5,background:"#E74C3C",color:"#fff",borderRadius:"50%",width:14,height:14,fontSize:8,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{ec}</span>}
             </button>;
           })}
@@ -448,7 +448,7 @@ function CalendarView({monthData,allSchedules,selectedMonthIdx,setMonthIdx,selec
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1.6fr) repeat(2,0.55fr)",gap:1,background:"#E8EEF5"}}>
             {gridCells.map((key,ci)=>{
-              if (!key) return <div key={`e${ci}`} style={{background:"#F0F2F5",minHeight:110,minWidth:0}}/>;
+              if (!key) return <div key={"e"+ci} style={{background:"#F0F2F5",minHeight:110,minWidth:0}}/>;
               const info=monthData[key];
               const isWk=info.weekend, isHol=info.holiday;
               if (isWk) return (
@@ -474,7 +474,7 @@ function CalendarView({monthData,allSchedules,selectedMonthIdx,setMonthIdx,selec
                   {!isHol&&slots.filter(s=>s.doctorId).slice(0,3).map((s,si)=>{
                     const sl=SHIFT_LABELS[s.shift],doc=getDoctor(s.doctorId),mine=s.doctorId===loggedInId;
                     return (
-                      <div key={si} style={{background:sl.bg,border:`2.5px solid ${mine?me.color:sl.border}`,borderRadius:6,padding:"4px 5px",marginBottom:3,minWidth:0}}>
+                      <div key={si} style={{background:sl.bg,border:"2.5px solid "+(mine?me.color:sl.border),borderRadius:6,padding:"4px 5px",marginBottom:3,minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
                           <span style={{width:8,height:8,borderRadius:"50%",background:doc.color,flexShrink:0,display:"inline-block"}}/>
                           <span style={{fontSize:11,fontWeight:700,color:"#1A2744"}}>{doc.initials}</span>
@@ -500,11 +500,11 @@ function CalendarView({monthData,allSchedules,selectedMonthIdx,setMonthIdx,selec
               {Object.keys(monthData).map(dk=>
                 monthData[dk].slots.filter(s=>!s.doctorId).map((s,i)=>{
                   const day=monthData[dk],sl=SHIFT_LABELS[s.shift],idx=monthData[dk].slots.indexOf(s);
-                  return <div key={`${dk}-${i}`} style={{background:"#fff",border:"2px solid #E74C3C",borderRadius:8,padding:"7px 12px",display:"flex",alignItems:"center",gap:8}}>
+                  return <div key={dk+"-"+i} style={{background:"#fff",border:"2px solid #E74C3C",borderRadius:8,padding:"7px 12px",display:"flex",alignItems:"center",gap:8}}>
                     <span style={{fontSize:14}}>🚨</span>
                     <div style={{flex:1}}>
                       <div style={{fontWeight:700,fontSize:11,color:"#C0392B"}}>{day.dayName} {day.day} — {s.period}</div>
-                      <div style={{fontSize:10,color:"#666"}}>{sl.label}{s.refusedBy?` · ${getDoctor(s.refusedBy)?.name}`:""}{s.refuseReason?` (${s.refuseReason})`:""}</div>
+                      <div style={{fontSize:10,color:"#666"}}>{sl.label}{s.refusedBy?" · "+(getDoctor(s.refusedBy)?getDoctor(s.refusedBy).name:""):""}{s.refuseReason?" ("+s.refuseReason+")":""}</div>
                     </div>
                     <button onClick={()=>onCoverSlot(dk,idx)} style={{background:"#27AE60",color:"#fff",border:"none",borderRadius:6,padding:"5px 9px",cursor:"pointer",fontSize:10,fontWeight:700,flexShrink:0}}>Copri</button>
                   </div>;
@@ -522,14 +522,14 @@ function WeekView({weekStart,setWeekStart,allSchedules,loggedInId,me,onAssignSel
   const days=Array.from({length:7},(_,i)=>{ const d=new Date(weekStart); d.setDate(d.getDate()+i); return d; });
   function getDayData(date) {
     const y=date.getFullYear(),m=date.getMonth(),d=date.getDate();
-    const key=`${y}-${pad(m+1)}-${pad(d)}`, mKey=`${y}-${m}`;
+    const key=y+"-"+pad(m+1)+"-"+pad(d), mKey=y+"-"+m;
     const md=allSchedules[mKey];
     return md?{key,info:md[key]}:{key,info:null};
   }
   function navWeek(dir) { setWeekStart(prev=>{ const d=new Date(prev); d.setDate(d.getDate()+dir*7); return d; }); }
   const monDate=days[0],sunDate=days[6];
-  const monStr=`${monDate.getDate()} ${MONTH_SHORT[monDate.getMonth()]}`;
-  const sunStr=`${sunDate.getDate()} ${MONTH_SHORT[sunDate.getMonth()]} ${sunDate.getFullYear()}`;
+  const monStr=monDate.getDate()+" "+MONTH_SHORT[monDate.getMonth()];
+  const sunStr=sunDate.getDate()+" "+MONTH_SHORT[sunDate.getMonth()]+" "+sunDate.getFullYear();
   return (
     <div style={{background:"#fff",borderRadius:14,boxShadow:"0 2px 16px #0001",overflow:"hidden",marginBottom:12}}>
       <div style={{background:"#1A2744",padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -565,7 +565,7 @@ function WeekView({weekStart,setWeekStart,allSchedules,loggedInId,me,onAssignSel
               {periodSlots.length===0?<div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:"#E8EEF5",fontSize:14}}>—</div>:periodSlots.map((slot,si)=>{
                 const sl=SHIFT_LABELS[slot.shift],doc=getDoctor(slot.doctorId),isEmpty=!slot.doctorId,isMe=slot.doctorId===loggedInId;
                 const gIdx=info.slots.indexOf(slot);
-                return <div key={si} style={{background:isEmpty?"#FDECEA":sl.bg,border:`2px solid ${isEmpty?"#E74C3C":isMe?me.color:sl.border}`,borderRadius:6,padding:"4px 5px",marginBottom:3,cursor:(isEmpty||isMe)?"pointer":"default"}}
+                return <div key={si} style={{background:isEmpty?"#FDECEA":sl.bg,border:"2px solid "+(isEmpty?"#E74C3C":isMe?me.color:sl.border),borderRadius:6,padding:"4px 5px",marginBottom:3,cursor:(isEmpty||isMe)?"pointer":"default"}}
                   onClick={()=>{ if(isEmpty) onAssignSelf(key,gIdx); else if(isMe) onSwapRequest(key,gIdx); }}>
                   {isEmpty?(<><div style={{fontSize:8,fontWeight:800,color:"#E74C3C"}}>🚨 SCOPERTO</div><div style={{fontSize:8,fontWeight:700,color:"#C0392B",marginTop:1}}>{sl.label}</div></>):(<>
                     <div style={{display:"flex",alignItems:"center",gap:3,marginBottom:2}}>
@@ -600,14 +600,14 @@ function DayDetail({dateKey,info,loggedInId,me,onAssignSelf,onSwapRequest,onRefu
           {slots.length===0?<div style={{color:"#ccc",fontSize:11}}>Nessuno slot</div>:slots.map((slot,si)=>{
             const gi=info.slots.indexOf(slot),slInfo=SHIFT_LABELS[slot.shift],doc=getDoctor(slot.doctorId);
             const isEmpty=!slot.doctorId,isMe=slot.doctorId===loggedInId;
-            return <div key={si} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`2px solid ${isEmpty?"#E74C3C":isMe?me.color:slInfo.border}`,borderRadius:9,background:isEmpty?"#FDECEA":slInfo.bg,marginBottom:5}}>
+            return <div key={si} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:"2px solid "+(isEmpty?"#E74C3C":isMe?me.color:slInfo.border),borderRadius:9,background:isEmpty?"#FDECEA":slInfo.bg,marginBottom:5}}>
               <div style={{flex:1}}>
                 <div style={{fontWeight:700,fontSize:11,color:isEmpty?"#E74C3C":slInfo.text}}>{slInfo.label}</div>
                 {!isEmpty?<div style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
                   <div style={{width:22,height:22,borderRadius:"50%",background:doc.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{doc.initials}</div>
                   <span style={{fontSize:11,fontWeight:600,color:"#1A2744"}}>{doc.name}</span>
                   {isMe&&<span style={{fontSize:8,background:me.color,color:"#fff",borderRadius:3,padding:"1px 4px"}}>TU</span>}
-                </div>:<div style={{fontSize:11,color:"#E74C3C",marginTop:3,fontWeight:700}}>🚨 Scoperto{slot.refusedBy?` · ${getDoctor(slot.refusedBy)?.name}`:""}{slot.refuseReason?` (${slot.refuseReason})`:""}</div>}
+                </div>:<div style={{fontSize:11,color:"#E74C3C",marginTop:3,fontWeight:700}}>🚨 Scoperto{slot.refusedBy?" · "+(getDoctor(slot.refusedBy)?getDoctor(slot.refusedBy).name:""):""}{slot.refuseReason?" ("+slot.refuseReason+")":""}</div>}
               </div>
               <div style={{display:"flex",gap:5,flexShrink:0}}>
                 {isEmpty&&<button onClick={()=>onAssignSelf(gi)} style={{background:"#27AE60",color:"#fff",border:"none",borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:10,fontWeight:700}}>Copri</button>}
@@ -630,7 +630,7 @@ function MyMonthSummary({monthData,loggedInId,me,monthLabel}) {
       <div style={{fontWeight:700,fontSize:12,color:"#1A2744",marginBottom:8}}><span style={{display:"inline-block",width:9,height:9,borderRadius:"50%",background:me.color,marginRight:6}}/> I miei turni — {monthLabel} ({mySlots.length})</div>
       {mySlots.length===0?<div style={{color:"#aaa",fontSize:11}}>Nessun turno assegnato.</div>:(
         <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-          {mySlots.map((item,i)=>{ const slInfo=SHIFT_LABELS[item.slot.shift]; return <div key={i} style={{background:slInfo.bg,border:`2px solid ${me.color}`,borderRadius:8,padding:"6px 10px",minWidth:120}}><div style={{fontWeight:700,fontSize:10,color:me.color}}>{item.day.dayName} {item.day.day}</div><div style={{fontSize:9,color:"#555",marginTop:1}}>{item.slot.period==="mattina"?"☀️":"🌙"} {item.slot.period}</div><div style={{fontSize:9,fontWeight:600,color:slInfo.text,marginTop:2}}>{slInfo.label}</div></div>; })}
+          {mySlots.map((item,i)=>{ const slInfo=SHIFT_LABELS[item.slot.shift]; return <div key={i} style={{background:slInfo.bg,border:"2px solid "+me.color,borderRadius:8,padding:"6px 10px",minWidth:120}}><div style={{fontWeight:700,fontSize:10,color:me.color}}>{item.day.dayName} {item.day.day}</div><div style={{fontSize:9,color:"#555",marginTop:1}}>{item.slot.period==="mattina"?"☀️":"🌙"} {item.slot.period}</div><div style={{fontSize:9,fontWeight:600,color:slInfo.text,marginTop:2}}>{slInfo.label}</div></div>; })}
         </div>
       )}
     </div>
@@ -646,7 +646,7 @@ function AbsencesView({allSchedules,loggedInId,me,weeks,updateSchedule,showToast
   const [selectedWeeks,setSelectedWeeks]=useState([]);
   const myUpcoming=[];
   MONTHS.forEach(({year,month})=>{
-    const mKey=`${year}-${month}`;
+    const mKey=year+"-"+month;
     Object.keys(allSchedules[mKey]).filter(dk=>dk>=todayKey).sort().forEach(dk=>{
       allSchedules[mKey][dk].slots.forEach((s,si)=>{ if(s.doctorId===loggedInId) myUpcoming.push({mKey,dk,si,dayInfo:allSchedules[mKey][dk],slot:s}); });
     });
@@ -665,7 +665,7 @@ function AbsencesView({allSchedules,loggedInId,me,weeks,updateSchedule,showToast
     if(!from||!to) return;
     updateSchedule(next=>{
       MONTHS.forEach(({year,month})=>{
-        const mKey=`${year}-${month}`;
+        const mKey=year+"-"+month;
         Object.keys(next[mKey]).forEach(dk=>{
           if(dk<from||dk>to) return;
           next[mKey][dk].slots.forEach(slot=>{ if(slot.doctorId===loggedInId){slot.refusedBy=loggedInId;slot.refuseReason=fr;slot.refused=true;slot.doctorId=null;} });
@@ -676,7 +676,7 @@ function AbsencesView({allSchedules,loggedInId,me,weeks,updateSchedule,showToast
     setFromDate("");setToDate("");setSelectedWeeks([]);
   }
   const workdayDates=[];
-  MONTHS.forEach(({year,month})=>{ Object.keys(allSchedules[`${year}-${month}`]).filter(k=>{const d=allSchedules[`${year}-${month}`][k];return !d.weekend&&!d.holiday&&k>=todayKey;}).forEach(k=>workdayDates.push(k)); });
+  MONTHS.forEach(({year,month})=>{ Object.keys(allSchedules[year+"-"+month]).filter(k=>{const d=allSchedules[year+"-"+month][k];return !d.weekend&&!d.holiday&&k>=todayKey;}).forEach(k=>workdayDates.push(k)); });
   workdayDates.sort();
   const minDate=workdayDates[0]||"",maxDate=workdayDates[workdayDates.length-1]||"";
   const preview=[];
@@ -686,7 +686,7 @@ function AbsencesView({allSchedules,loggedInId,me,weeks,updateSchedule,showToast
   else if(mode==="weeks"&&selectedWeeks.length){const sorted=selectedWeeks.sort();const fw=weeks.find(w=>w.monKey===sorted[0]),lw=weeks.find(w=>w.monKey===sorted[sorted.length-1]);if(fw&&lw){pFrom=fw.days[0];pTo=lw.days[lw.days.length-1];}}
   if(pFrom&&pTo) myUpcoming.forEach(item=>{if(item.dk>=pFrom&&item.dk<=pTo) preview.push(item);});
   const weeksByMonth={};
-  weeks.forEach(wk=>{const d=new Date(wk.monKey),mLabel=`${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`;if(!weeksByMonth[mLabel])weeksByMonth[mLabel]=[];weeksByMonth[mLabel].push(wk);});
+  weeks.forEach(wk=>{const d=new Date(wk.monKey),mLabel=MONTH_SHORT[d.getMonth()]+" "+d.getFullYear();if(!weeksByMonth[mLabel])weeksByMonth[mLabel]=[];weeksByMonth[mLabel].push(wk);});
   return (
     <main style={{padding:"14px 16px",maxWidth:700,margin:"0 auto"}}>
       <div style={{background:"#fff",borderRadius:14,boxShadow:"0 2px 16px #0001",overflow:"hidden"}}>
@@ -696,7 +696,7 @@ function AbsencesView({allSchedules,loggedInId,me,weeks,updateSchedule,showToast
             <div style={{fontSize:11,fontWeight:700,color:"#1A2744",marginBottom:7}}>Tipo selezione</div>
             <div style={{display:"flex",gap:6}}>
               {[{v:"single",label:"Giorno"},{v:"range",label:"Periodo"},{v:"weeks",label:"Settimane"}].map(opt=>(
-                <button key={opt.v} onClick={()=>{setMode(opt.v);setFromDate("");setToDate("");setSelectedWeeks([]);}} style={{flex:1,padding:"7px 4px",borderRadius:8,border:`2px solid ${mode===opt.v?"#1A2744":"#E8EEF5"}`,background:mode===opt.v?"#1A2744":"#fff",color:mode===opt.v?"#fff":"#555",fontWeight:600,fontSize:11,cursor:"pointer"}}>{opt.label}</button>
+                <button key={opt.v} onClick={()=>{setMode(opt.v);setFromDate("");setToDate("");setSelectedWeeks([]);}} style={{flex:1,padding:"7px 4px",borderRadius:8,border:"2px solid "+(mode===opt.v?"#1A2744":"#E8EEF5"),background:mode===opt.v?"#1A2744":"#fff",color:mode===opt.v?"#fff":"#555",fontWeight:600,fontSize:11,cursor:"pointer"}}>{opt.label}</button>
               ))}
             </div>
           </div>
@@ -704,7 +704,7 @@ function AbsencesView({allSchedules,loggedInId,me,weeks,updateSchedule,showToast
             <div style={{fontSize:11,fontWeight:700,color:"#1A2744",marginBottom:6}}>Motivo</div>
             <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
               {ABSENCE_REASONS.map(r=>(
-                <button key={r} onClick={()=>setReason(r)} style={{padding:"5px 11px",borderRadius:20,border:`2px solid ${reason===r?"#E74C3C":"#E8EEF5"}`,background:reason===r?"#FDECEA":"#fff",color:reason===r?"#C0392B":"#555",fontWeight:600,fontSize:11,cursor:"pointer"}}>
+                <button key={r} onClick={()=>setReason(r)} style={{padding:"5px 11px",borderRadius:20,border:"2px solid "+(reason===r?"#E74C3C":"#E8EEF5"),background:reason===r?"#FDECEA":"#fff",color:reason===r?"#C0392B":"#555",fontWeight:600,fontSize:11,cursor:"pointer"}}>
                   {r==="Ferie"?"🌴":r==="Congresso"?"🎓":r==="Malattia"?"🤒":"✏️"} {r}
                 </button>
               ))}
@@ -713,7 +713,7 @@ function AbsencesView({allSchedules,loggedInId,me,weeks,updateSchedule,showToast
           </div>
           {mode==="single"&&<div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#1A2744",marginBottom:5}}>Giorno</div><input type="date" value={fromDate} min={minDate} max={maxDate} onChange={e=>setFromDate(e.target.value)} style={{padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:7,fontSize:12,outline:"none",width:"100%",boxSizing:"border-box"}}/></div>}
           {mode==="range"&&<div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#1A2744",marginBottom:5}}>Periodo</div><div style={{display:"flex",gap:8,alignItems:"center"}}><div style={{flex:1}}><div style={{fontSize:10,color:"#888",marginBottom:3}}>Da</div><input type="date" value={fromDate} min={minDate} max={maxDate} onChange={e=>setFromDate(e.target.value)} style={{padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:7,fontSize:12,outline:"none",width:"100%",boxSizing:"border-box"}}/></div><div style={{fontSize:14,color:"#CBD5E1",marginTop:12}}>→</div><div style={{flex:1}}><div style={{fontSize:10,color:"#888",marginBottom:3}}>A</div><input type="date" value={toDate} min={fromDate||minDate} max={maxDate} onChange={e=>setToDate(e.target.value)} style={{padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:7,fontSize:12,outline:"none",width:"100%",boxSizing:"border-box"}}/></div></div></div>}
-          {mode==="weeks"&&<div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#1A2744",marginBottom:7}}>Settimane</div>{Object.entries(weeksByMonth).map(([mLabel,mWeeks])=><div key={mLabel} style={{marginBottom:10}}><div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:5,textTransform:"uppercase"}}>{mLabel}</div><div style={{display:"flex",flexDirection:"column",gap:4}}>{mWeeks.map(wk=>{const isSel=selectedWeeks.includes(wk.monKey);const mon=new Date(wk.monKey);const fri=new Date(wk.days[wk.days.length-1]);const myCount=wk.days.reduce((acc,dk)=>{MONTHS.forEach(({year,month})=>{const md=allSchedules[`${year}-${month}`];if(md&&md[dk]) acc+=md[dk].slots.filter(s=>s.doctorId===loggedInId).length;});return acc;},0);return <button key={wk.monKey} onClick={()=>toggleWeek(wk.monKey)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",border:`2px solid ${isSel?"#E74C3C":"#E8EEF5"}`,borderRadius:9,background:isSel?"#FDECEA":"#FAFAFA",cursor:"pointer",textAlign:"left"}}><div style={{width:18,height:18,borderRadius:4,border:`2px solid ${isSel?"#E74C3C":"#CBD5E1"}`,background:isSel?"#E74C3C":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isSel&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}</div><div style={{flex:1}}><div style={{fontWeight:600,fontSize:11,color:"#1A2744"}}>{mon.getDate()}–{fri.getDate()} {MONTH_SHORT[fri.getMonth()]}</div><div style={{fontSize:10,color:myCount>0?"#E67E22":"#aaa"}}>{myCount>0?`${myCount} tuoi turni`:"Nessun turno"}</div></div></button>;})</div></div>)}</div>}
+          {mode==="weeks"&&<div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#1A2744",marginBottom:7}}>Settimane</div>{Object.entries(weeksByMonth).map(([mLabel,mWeeks])=><div key={mLabel} style={{marginBottom:10}}><div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:5,textTransform:"uppercase"}}>{mLabel}</div><div style={{display:"flex",flexDirection:"column",gap:4}}>{mWeeks.map(wk=>{const isSel=selectedWeeks.includes(wk.monKey);const mon=new Date(wk.monKey);const fri=new Date(wk.days[wk.days.length-1]);const myCount=wk.days.reduce((acc,dk)=>{MONTHS.forEach(({year,month})=>{const md=allSchedules[year+"-"+month];if(md&&md[dk]) acc+=md[dk].slots.filter(s=>s.doctorId===loggedInId).length;});return acc;},0);return <button key={wk.monKey} onClick={()=>toggleWeek(wk.monKey)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",border:"2px solid "+(isSel?"#E74C3C":"#E8EEF5"),borderRadius:9,background:isSel?"#FDECEA":"#FAFAFA",cursor:"pointer",textAlign:"left"}}><div style={{width:18,height:18,borderRadius:4,border:"2px solid "+(isSel?"#E74C3C":"#CBD5E1"),background:isSel?"#E74C3C":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{isSel&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}</div><div style={{flex:1}}><div style={{fontWeight:600,fontSize:11,color:"#1A2744"}}>{mon.getDate()}–{fri.getDate()} {MONTH_SHORT[fri.getMonth()]}</div><div style={{fontSize:10,color:myCount>0?"#E67E22":"#aaa"}}>{myCount>0?myCount+" tuoi turni":"Nessun turno"}</div></div></button>;})</div></div>)}</div>}
           {preview.length>0&&<div style={{background:"#FFF8E1",border:"2px solid #FFD54F",borderRadius:8,padding:"10px 12px",marginBottom:12}}><div style={{fontWeight:700,fontSize:11,color:"#E65100",marginBottom:6}}>⚠️ {preview.length} turni che verranno liberati</div><div style={{display:"flex",flexWrap:"wrap",gap:4}}>{preview.map((item,i)=>{const sl=SHIFT_LABELS[item.slot.shift];return <div key={i} style={{background:"#fff",border:"1px solid #FFD54F",borderRadius:6,padding:"3px 8px",fontSize:10}}><span style={{fontWeight:600,color:"#1A2744"}}>{item.dayInfo.dayName} {item.dayInfo.day}</span><span style={{color:"#888"}}> · {item.slot.period} · </span><span style={{fontWeight:600,color:sl.text}}>{sl.label}</span></div>;})} </div></div>}
           <button disabled={preview.length===0} onClick={doAbsence} style={{width:"100%",padding:11,background:preview.length>0?"#E74C3C":"#ccc",color:"#fff",border:"none",borderRadius:9,fontWeight:700,fontSize:13,cursor:preview.length>0?"pointer":"not-allowed"}}>🚫 Conferma assenza — {preview.length} slot liberati</button>
         </div>
@@ -726,12 +726,12 @@ function StatsView({stats,allSchedules,notifications}) {
   const [selectedDoc,setSelectedDoc]=useState(null);
   const activeDoctors=DOCTORS.filter(d=>d.active);
   const monthTotals={};
-  MONTHS.forEach(({year,month})=>{const label=`${MONTH_SHORT[month]} ${year}`;let tot=0;Object.values(allSchedules[`${year}-${month}`]).forEach(d=>d.slots.forEach(s=>{if(s.doctorId)tot++;}));monthTotals[label]=tot;});
+  MONTHS.forEach(({year,month})=>{const label=MONTH_SHORT[month]+" "+year;let tot=0;Object.values(allSchedules[year+"-"+month]).forEach(d=>d.slots.forEach(s=>{if(s.doctorId)tot++;}));monthTotals[label]=tot;});
   const maxBar=Math.max(...Object.values(monthTotals),1);
   return (
     <main style={{padding:"14px 16px",maxWidth:1000,margin:"0 auto"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:16}}>
-        {activeDoctors.map(d=>{const s=stats[d.id];return <div key={d.id} onClick={()=>setSelectedDoc(selectedDoc===d.id?null:d.id)} style={{background:"#fff",borderRadius:12,padding:"12px",boxShadow:"0 2px 12px #0001",border:`2px solid ${selectedDoc===d.id?d.color:"transparent"}`,cursor:"pointer"}}>
+        {activeDoctors.map(d=>{const s=stats[d.id];return <div key={d.id} onClick={()=>setSelectedDoc(selectedDoc===d.id?null:d.id)} style={{background:"#fff",borderRadius:12,padding:"12px",boxShadow:"0 2px 12px #0001",border:"2px solid "+(selectedDoc===d.id?d.color:"transparent"),cursor:"pointer"}}>
           <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}><div style={{width:30,height:30,borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:11}}>{d.initials}</div><div style={{fontWeight:700,fontSize:11,color:"#1A2744",lineHeight:1.3}}>{d.name}</div></div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
             {[["#F0F4FA","#1A2744",s.total,"Turni"],["#FFF8E1","#E67E22",s.swapsRequested,"Cambi ch."],["#F0FFF4","#27AE60",s.swapsReceived,"Cambi ric."],["#FEF3F2","#E74C3C",s.absences||0,"Assenze"]].map(([bg,col,val,lbl],i)=>(
@@ -740,13 +740,13 @@ function StatsView({stats,allSchedules,notifications}) {
           </div>
         </div>;})}
       </div>
-      {selectedDoc&&<div style={{background:"#fff",borderRadius:12,boxShadow:"0 2px 12px #0001",padding:"16px",marginBottom:16,border:`2px solid ${getDoctor(selectedDoc).color}`}}>
+      {selectedDoc&&<div style={{background:"#fff",borderRadius:12,boxShadow:"0 2px 12px #0001",padding:"16px",marginBottom:16,border:"2px solid "+getDoctor(selectedDoc).color}}>
         <div style={{fontWeight:700,fontSize:13,color:"#1A2744",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
           <div style={{width:24,height:24,borderRadius:"50%",background:getDoctor(selectedDoc).color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:9}}>{getDoctor(selectedDoc).initials}</div>
           {getDoctor(selectedDoc).name}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:6}}>
-          {MONTHS.map(({year,month},i)=>{const label=`${MONTH_SHORT[month]} ${year}`,count=stats[selectedDoc].byMonth[label]||0;const maxCount=Math.max(...MONTHS.map(m=>stats[selectedDoc].byMonth[`${MONTH_SHORT[m.month]} ${m.year}`]||0),1);return <div key={i} style={{background:"#F8FAFC",borderRadius:8,padding:"9px",textAlign:"center"}}><div style={{fontSize:9,fontWeight:600,color:"#888",marginBottom:5}}>{label}</div><div style={{background:"#E8EEF5",borderRadius:4,height:44,display:"flex",alignItems:"flex-end",overflow:"hidden",marginBottom:4}}><div style={{width:"100%",height:`${(count/maxCount)*100}%`,background:getDoctor(selectedDoc).color,borderRadius:"3px 3px 0 0",minHeight:count>0?5:0}}/></div><div style={{fontWeight:800,fontSize:14,color:"#1A2744"}}>{count}</div></div>;})}
+          {MONTHS.map(({year,month},i)=>{const label=MONTH_SHORT[month]+" "+year,count=stats[selectedDoc].byMonth[label]||0;const maxCount=Math.max(...MONTHS.map(m=>stats[selectedDoc].byMonth[MONTH_SHORT[m.month]+" "+m.year]||0),1);return <div key={i} style={{background:"#F8FAFC",borderRadius:8,padding:"9px",textAlign:"center"}}><div style={{fontSize:9,fontWeight:600,color:"#888",marginBottom:5}}>{label}</div><div style={{background:"#E8EEF5",borderRadius:4,height:44,display:"flex",alignItems:"flex-end",overflow:"hidden",marginBottom:4}}><div style={{width:"100%",height:((count/maxCount)*100)+"%",background:getDoctor(selectedDoc).color,borderRadius:"3px 3px 0 0",minHeight:count>0?5:0}}/></div><div style={{fontWeight:800,fontSize:14,color:"#1A2744"}}>{count}</div></div>;})}
         </div>
       </div>}
       <div style={{background:"#fff",borderRadius:12,boxShadow:"0 2px 12px #0001",padding:"14px",marginBottom:14}}>
@@ -755,7 +755,7 @@ function StatsView({stats,allSchedules,notifications}) {
           {Object.entries(monthTotals).map(([label,tot],i)=>(
             <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
               <div style={{fontSize:9,fontWeight:700,color:"#1A2744"}}>{tot}</div>
-              <div style={{width:"100%",background:"#1A2744",borderRadius:"3px 3px 0 0",height:`${(tot/maxBar)*64}px`,minHeight:tot>0?4:0}}/>
+              <div style={{width:"100%",background:"#1A2744",borderRadius:"3px 3px 0 0",height:((tot/maxBar)*64)+"px",minHeight:tot>0?4:0}}/>
               <div style={{fontSize:8,color:"#888"}}>{label.split(" ")[0]}</div>
             </div>
           ))}
@@ -773,7 +773,7 @@ function StatsView({stats,allSchedules,notifications}) {
           </tr></thead>
           <tbody>{activeDoctors.map(d=>{const s=stats[d.id];return <tr key={d.id} style={{borderTop:"1px solid #F1F5F9"}}>
             <td style={{padding:"8px 12px"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:20,height:20,borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:8}}>{d.initials}</div><span style={{fontWeight:600,color:"#1A2744",fontSize:11}}>{d.name}</span></div></td>
-            {MONTHS.map((m,i)=>{const label=`${MONTH_SHORT[m.month]} ${m.year}`,count=s.byMonth[label]||0;return <td key={i} style={{padding:"8px 5px",textAlign:"center",color:count>0?"#1A2744":"#CBD5E1",fontWeight:count>0?600:400}}>{count||"—"}</td>;})}
+            {MONTHS.map((m,i)=>{const label=MONTH_SHORT[m.month]+" "+m.year,count=s.byMonth[label]||0;return <td key={i} style={{padding:"8px 5px",textAlign:"center",color:count>0?"#1A2744":"#CBD5E1",fontWeight:count>0?600:400}}>{count||"—"}</td>;})}
             <td style={{padding:"8px 8px",textAlign:"center",fontWeight:800,color:"#1A2744",fontSize:13}}>{s.total}</td>
             <td style={{padding:"8px 8px",textAlign:"center",fontWeight:700,color:"#E67E22"}}>{s.swapsRequested||0}</td>
             <td style={{padding:"8px 8px",textAlign:"center",fontWeight:700,color:"#E74C3C"}}>{s.absences||0}</td>
@@ -798,7 +798,7 @@ function AbsenceModal({slot,dayInfo,onConfirm,onClose}) {
       <div style={{background:"#FDECEA",borderRadius:9,padding:"8px 11px",marginBottom:12}}><div style={{fontWeight:700,fontSize:12,color:"#1A2744"}}>{dayInfo.dayName} {dayInfo.day}</div><div style={{fontSize:10,color:"#555",marginTop:2}}>{slot.period==="mattina"?"☀️":"🌙"} {slot.period} · <span style={{fontWeight:700,color:slInfo.text}}>{slInfo.label}</span></div></div>
       <div style={{fontSize:11,fontWeight:700,color:"#1A2744",marginBottom:6}}>Motivo</div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
-        {ABSENCE_REASONS.map(r=><button key={r} onClick={()=>setReason(r)} style={{padding:"5px 10px",borderRadius:20,border:`2px solid ${reason===r?"#E74C3C":"#E8EEF5"}`,background:reason===r?"#FDECEA":"#fff",color:reason===r?"#C0392B":"#555",fontWeight:600,fontSize:11,cursor:"pointer"}}>{r==="Ferie"?"🌴":r==="Congresso"?"🎓":r==="Malattia"?"🤒":"✏️"} {r}</button>)}
+        {ABSENCE_REASONS.map(r=><button key={r} onClick={()=>setReason(r)} style={{padding:"5px 10px",borderRadius:20,border:"2px solid "+(reason===r?"#E74C3C":"#E8EEF5"),background:reason===r?"#FDECEA":"#fff",color:reason===r?"#C0392B":"#555",fontWeight:600,fontSize:11,cursor:"pointer"}}>{r==="Ferie"?"🌴":r==="Congresso"?"🎓":r==="Malattia"?"🤒":"✏️"} {r}</button>)}
       </div>
       {reason==="Altro"&&<input value={custom} onChange={e=>setCustom(e.target.value)} placeholder="Specifica..." style={{width:"100%",padding:"7px 10px",border:"1.5px solid #E8EEF5",borderRadius:7,fontSize:12,marginBottom:8,boxSizing:"border-box",outline:"none"}}/>}
       <div style={{display:"flex",gap:7}}>
@@ -838,7 +838,7 @@ function SwapModal({fromDk,fromSi,monthData,loggedInId,getSlotsOfDoctor,onReques
         <div style={{fontWeight:700,fontSize:12,color:"#1A2744"}}>2. Turno di <span style={{color:toDoctor.color}}>{toDoctor.name}</span></div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10,maxHeight:220,overflowY:"auto"}}>
-        {collegaSlots.map((item,i)=>{const slInfo=SHIFT_LABELS[item.slot.shift],isSel=toSlot&&toSlot.dk===item.dk&&toSlot.si===item.si;return <button key={i} onClick={()=>setToSlot(item)} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",border:`2px solid ${isSel?toDoctor.color:"#E8EEF5"}`,borderRadius:8,background:isSel?`${toDoctor.color}18`:"#FAFAFA",cursor:"pointer",textAlign:"left"}}>
+        {collegaSlots.map((item,i)=>{const slInfo=SHIFT_LABELS[item.slot.shift],isSel=toSlot&&toSlot.dk===item.dk&&toSlot.si===item.si;return <button key={i} onClick={()=>setToSlot(item)} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 11px",border:"2px solid "+(isSel?toDoctor.color:"#E8EEF5"),borderRadius:8,background:isSel?toDoctor.color+"18":"#FAFAFA",cursor:"pointer",textAlign:"left"}}>
           <div style={{flex:1}}><div style={{fontWeight:700,fontSize:11,color:"#1A2744"}}>{item.dayInfo.dayName} {item.dayInfo.day} · <span style={{fontSize:9,color:"#888",fontWeight:400}}>{MONTH_SHORT[item.dayInfo.month]}</span></div><div style={{display:"flex",gap:5,marginTop:2,alignItems:"center"}}><span style={{fontSize:10,color:"#555"}}>{item.slot.period==="mattina"?"☀️":"🌙"} {item.slot.period}</span><span style={{fontSize:9,fontWeight:700,color:slInfo.text,background:slInfo.bg,borderRadius:3,padding:"1px 5px"}}>{slInfo.label}</span></div></div>
           {isSel&&<span style={{color:toDoctor.color,fontSize:14}}>✓</span>}
         </button>;})}
