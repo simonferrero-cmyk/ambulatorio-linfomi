@@ -205,6 +205,7 @@ function buildApp() {
   if (!state.loggedInId) return buildLogin();
   const me = getDoc(state.loggedInId);
   const curKey = MONTHS[state.monthIdx].year+"-"+MONTHS[state.monthIdx].month;
+  if (!state.schedules[curKey]) state.schedules[curKey] = genMonth(MONTHS[state.monthIdx].year, MONTHS[state.monthIdx].month);
   const monthData = state.schedules[curKey];
 
   return el("div", {style:{fontFamily:"system-ui,sans-serif",background:"#F0F4FA",minHeight:"100vh"}},
@@ -440,6 +441,7 @@ function buildMonthView(me, monthData, curKey) {
     }
     const info = monthData[key];
     if (!info) { grid.appendChild(el("div", {style:{background:"#F0F2F5",minHeight:"110px"}})); return; }
+    if (!info.slots) info.slots = [];
 
     if (info.weekend) {
       grid.appendChild(el("div", {style:{minHeight:"110px",background:"#EBEBEB",padding:"5px 2px",borderTop:"3px solid transparent",minWidth:"0",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center"}},
@@ -449,7 +451,7 @@ function buildMonthView(me, monthData, curKey) {
     }
 
     const isHol = info.holiday;
-    const slots = info.slots || [];
+    const slots = (info && info.slots) ? info.slots : [];
     const empties = slots.filter(s => !s.doctorId);
     const hasEmpty = empties.length > 0;
     const isSelected = state.selectedDate === key;
@@ -523,10 +525,10 @@ function buildMonthView(me, monthData, curKey) {
       el("div", {style:{fontWeight:"800",color:"#C0392B",marginBottom:"8px",fontSize:"13px"}}, "🚨 "+emptyCount+" slot scoperti")
     );
     Object.keys(monthData).forEach(key => {
-      monthData[key].slots.filter(s=>!s.doctorId).forEach((s,i) => {
+      ((monthData[key] && monthData[key].slots) || []).filter(s=>!s.doctorId).forEach((s,i) => {
         const day = monthData[key];
         const sl = SHIFTS[s.shift];
-        const idx = monthData[key].slots.indexOf(s);
+        const idx = (monthData[key].slots||[]).indexOf(s);
         const row = el("div", {style:{background:"#fff",border:"2px solid #E74C3C",borderRadius:"8px",padding:"7px 12px",display:"flex",alignItems:"center",gap:"8px",marginBottom:"5px"}},
           el("span", {style:{fontSize:"14px"}}, "🚨"),
           el("div", {style:{flex:"1"}},
@@ -687,7 +689,7 @@ function buildDayDetail(me, monthData, key) {
 function buildMyMonthSummary(me, monthData) {
   const mySlots = [];
   Object.keys(monthData).forEach(key => {
-    (monthData[key].slots||[]).forEach(s => {
+    ((monthData[key] && monthData[key].slots)||[]).forEach(s => {
       if (s.doctorId===state.loggedInId) mySlots.push({key, day:monthData[key], slot:s});
     });
   });
@@ -1059,7 +1061,7 @@ function approveSwap(notif) {
 
 function countEmpty(monthData) {
   let c = 0;
-  Object.values(monthData).forEach(d => (d.slots||[]).forEach(s => { if(!s.doctorId) c++; }));
+  Object.values(monthData).forEach(d => { if(d && d.slots) d.slots.forEach(s => { if(!s.doctorId) c++; }); });
   return c;
 }
 
