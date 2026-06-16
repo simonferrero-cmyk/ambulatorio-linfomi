@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/></head>
+<body>
+<div id="app"><p>Caricamento...</p></div>
+<script>
+try {
+  // Test 1: costanti base
+  const DOCTORS = [
+    { id:1, name:"Federica Cavallo",  initials:"FC", color:"#E74C3C", active:false },
+    { id:2, name:"Simone Ferrero",    initials:"SF", color:"#1ABC9C", active:true  },
+    { id:3, name:"Michele Clerico",   initials:"MC", color:"#3498DB", active:true  },
+    { id:4, name:"Simone Ragaini",    initials:"SR", color:"#E67E22", active:true  },
+    { id:5, name:"Chiara Consoli",    initials:"CC", color:"#9B59B6", active:true  },
+  ];
+
+  const pad = n => String(n).padStart(2,"0");
+  const dk = (y,m,d) => y+"-"+pad(m+1)+"-"+pad(d);
+
+  // Test 2: generazione mese
+  function genMonth(year, month) {
+    const days = new Date(year, month+1, 0).getDate();
+    const result = {};
+    for (let d=1; d<=days; d++) {
+      const key = dk(year, month, d);
+      result[key] = { day:d, slots:[] };
+    }
+    return result;
+  }
+
+  const giugno = genMonth(2026, 5);
+  const nGiorni = Object.keys(giugno).length;
+
+  // Test 3: rendering semplice
+  function el(tag, attrs, ...children) {
+    const e = document.createElement(tag);
+    if (attrs) Object.entries(attrs).forEach(([k,v]) => {
+      if (k==="style" && typeof v==="object") Object.assign(e.style, v);
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2).toLowerCase(), v);
+      else e.setAttribute(k, v);
+    });
+    children.flat(Infinity).forEach(c => {
+      if (c==null||c===false) return;
+      e.appendChild(typeof c==="string"||typeof c==="number" ? document.createTextNode(c) : c);
+    });
+    return e;
+  }
+
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  app.appendChild(el("div", {style:{padding:"20px",fontFamily:"system-ui"}},
+    el("h2", {style:{color:"#1A2744"}}, "✅ Test superato!"),
+    el("p", {}, "DOCTORS: "+DOCTORS.length+" medici"),
+    el("p", {}, "Giugno 2026: "+nGiorni+" giorni"),
+    el("p", {}, "Funzione el(): OK"),
+    el("button", {
+      style:{background:"#1A2744",color:"#fff",border:"none",padding:"10px 20px",borderRadius:"8px",cursor:"pointer",marginTop:"10px"},
+      onclick: () => alert("Click funziona!")
+    }, "Clicca qui per testare")
+  ));
+
+} catch(e) {
+  document.getElementById("app").innerHTML = "<h2 style='color:red'>ERRORE: "+e.message+"</h2><pre>"+e.stack+"</pre>";
+}
+</script>
+</body>
+</html>
