@@ -951,7 +951,7 @@ function buildStats() {
     MONTHS.forEach(({year,month}) => {
       const md = state.schedules[year+"-"+month];
       Object.values(md).forEach(day => {
-        day.slots.forEach(s => {
+        (day.slots||[]).forEach(s => {
           if (s.doctorId===d.id) total++;
           if (s.refused && s.refusedBy===d.id) absences++;
         });
@@ -997,7 +997,7 @@ function buildStats() {
     MONTHS.forEach(({year,month}) => {
       let count = 0;
       const md = state.schedules[year+"-"+month];
-      Object.values(md).forEach(day => day.slots.forEach(s => { if(s.doctorId===d.id) count++; }));
+      Object.values(md).forEach(day => (day&&day.slots?day.slots:[]).forEach(s => { if(s.doctorId===d.id) count++; }));
       total += count;
       row.appendChild(el("td", {style:{padding:"8px 5px",textAlign:"center",color:count>0?"#1A2744":"#CBD5E1",fontWeight:count>0?"600":"400"}}, count>0?String(count):"—"));
     });
@@ -1026,7 +1026,7 @@ function getAllSlotsOfDoctor(doctorId) {
     Object.keys(md).forEach(key => {
       const day = md[key];
       if (!day || !day.slots) return;
-      day.slots.forEach((s,si) => {
+      (day.slots||[]).forEach((s,si) => {
         if (s.doctorId === doctorId) {
           result.push({mKey, dk:key, si, dayInfo:day, slot:s});
         }
@@ -1343,7 +1343,7 @@ function approveSwap(notif) {
 
 function countEmpty(monthData) {
   let c = 0;
-  Object.values(monthData).forEach(d => { if(d && d.slots) d.slots.forEach(s => { if(!s.doctorId) c++; }); });
+  Object.values(monthData).forEach(d => { if(d && d.slots) (d.slots||[]).forEach(s => { if(!s.doctorId) c++; }); });
   return c;
 }
 
