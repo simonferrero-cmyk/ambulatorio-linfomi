@@ -341,7 +341,7 @@ function buildHeader(me, monthData) {
         el("div", {style:{fontSize:"12px",fontWeight:"700",color:"#1A2744",marginBottom:"3px"}}, n.text),
         n.detail ? el("div", {style:{fontSize:"10px",color:"#666",marginBottom:"6px",background:"#F8FAFC",borderRadius:"5px",padding:"4px 8px"}}, n.detail) : null
       );
-      if (!n.read && !n.approved && n.type === "swap") {
+      if (!n.read && !n.approved && (n.type === "swap" || n.type === "cover")) {
         const btns = el("div", {style:{display:"flex",gap:"6px"}});
         btns.appendChild(el("button", {
           style:{background:"#27AE60",color:"#fff",border:"none",borderRadius:"5px",padding:"4px 10px",cursor:"pointer",fontSize:"11px",fontWeight:"700"},
@@ -1113,8 +1113,22 @@ function buildSwapModal(me, monthData) {
     const collegaSlots = getAllSlotsOfDoctor(toDoctor.id);
     const slotList = el("div", {style:{maxHeight:"240px",overflowY:"auto",marginBottom:"10px"}});
 
+    // Opzione "nessun turno in cambio"
+    const isNoSwap = toSlot && toSlot.noSwap;
+    slotList.appendChild(el("button", {
+      style:{display:"flex",alignItems:"center",gap:"10px",padding:"10px 12px",border:"2px solid "+(isNoSwap?"#E67E22":"#E8EEF5"),borderRadius:"9px",background:isNoSwap?"#FFF8E1":"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"8px"},
+      onclick: () => { state.swapModal = {...state.swapModal, toSlot:{noSwap:true, dayInfo:null, slot:null, dk:null, si:null, mKey:null}}; render(); }
+    },
+      el("div", {style:{width:"34px",height:"34px",borderRadius:"50%",background:"#E67E22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"18px",flexShrink:"0"}}, "🤝"),
+      el("div", {style:{textAlign:"left"}},
+        el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744"}}, "Nessun turno in cambio"),
+        el("div", {style:{fontSize:"10px",color:"#888"}}, "Chiedi al collega di coprire il tuo slot senza ricevere nulla")
+      ),
+      isNoSwap ? el("span", {style:{color:"#E67E22",fontSize:"16px",marginLeft:"auto"}}, "✓") : null
+    ));
+
     if (collegaSlots.length === 0) {
-      slotList.appendChild(el("div", {style:{color:"#aaa",textAlign:"center",padding:"20px",fontSize:"12px"}}, "Nessun turno disponibile per questo collega."));
+      slotList.appendChild(el("div", {style:{color:"#aaa",textAlign:"center",padding:"10px",fontSize:"12px"}}, "Nessun turno disponibile per questo collega."));
     } else {
       collegaSlots.forEach(item => {
         const slInfo = SHIFTS[item.slot.shift];
@@ -1138,23 +1152,42 @@ function buildSwapModal(me, monthData) {
 
     // Riepilogo cambio proposto
     if (toSlot) {
-      const ti = SHIFTS[toSlot.slot.shift];
-      box.appendChild(el("div", {style:{background:"#EFF6FF",border:"2px solid #3498DB",borderRadius:"9px",padding:"10px 13px",marginBottom:"12px"}},
-        el("div", {style:{fontSize:"10px",fontWeight:"700",color:"#1A5276",marginBottom:"8px",textTransform:"uppercase"}}, "Cambio proposto"),
-        el("div", {style:{display:"flex",alignItems:"center",gap:"8px"}},
-          el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
-            el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Tu cedi"),
-            el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
-            el("div", {style:{fontSize:"11px",color:fi.text}}, fromSlot.period+" · "+fi.label)
-          ),
-          el("div", {style:{fontSize:"20px",color:"#3498DB"}}, "⇄"),
-          el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
-            el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Ricevi"),
-            el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day),
-            el("div", {style:{fontSize:"11px",color:ti.text}}, toSlot.slot.period+" · "+ti.label)
+      if (toSlot.noSwap) {
+        box.appendChild(el("div", {style:{background:"#FFF8E1",border:"2px solid #E67E22",borderRadius:"9px",padding:"10px 13px",marginBottom:"12px"}},
+          el("div", {style:{fontSize:"10px",fontWeight:"700",color:"#9A6600",marginBottom:"6px",textTransform:"uppercase"}}, "Proposta di copertura"),
+          el("div", {style:{display:"flex",alignItems:"center",gap:"10px"}},
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Turno da coprire"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
+              el("div", {style:{fontSize:"11px",color:fi.text}}, fromSlot.period+" · "+fi.label)
+            ),
+            el("div", {style:{fontSize:"20px"}}, "🤝"),
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Senza turno in cambio"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#E67E22"}}, toDoctor.name),
+              el("div", {style:{fontSize:"10px",color:"#aaa"}}, "copre il tuo slot")
+            )
           )
-        )
-      ));
+        ));
+      } else {
+        const ti = SHIFTS[toSlot.slot.shift];
+        box.appendChild(el("div", {style:{background:"#EFF6FF",border:"2px solid #3498DB",borderRadius:"9px",padding:"10px 13px",marginBottom:"12px"}},
+          el("div", {style:{fontSize:"10px",fontWeight:"700",color:"#1A5276",marginBottom:"8px",textTransform:"uppercase"}}, "Cambio proposto"),
+          el("div", {style:{display:"flex",alignItems:"center",gap:"8px"}},
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Tu cedi"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
+              el("div", {style:{fontSize:"11px",color:fi.text}}, fromSlot.period+" · "+fi.label)
+            ),
+            el("div", {style:{fontSize:"20px",color:"#3498DB"}}, "⇄"),
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Ricevi"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day),
+              el("div", {style:{fontSize:"11px",color:ti.text}}, toSlot.slot.period+" · "+ti.label)
+            )
+          )
+        ));
+      }
     }
   }
 
@@ -1178,15 +1211,15 @@ function buildSwapModal(me, monthData) {
           text: "🔄 "+fromDoc.name+" propone cambio con "+toDoc.name,
           detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" ⇄ "+toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day+" · "+toSlot.slot.period+" · "+ti.label,
           fromId: fromSlot.doctorId, toId: toDoctor.id,
-          fromDk: fromDk, fromSi: fromSi, fromMKey: getMonthDataForKey(fromDk) ? Object.keys(state.schedules).find(k=>state.schedules[k][fromDk]) : "",
+          fromDk: fromDk, fromSi: fromSi, fromMKey: Object.keys(state.schedules).find(k=>state.schedules[k][fromDk])||"",
           toDk: toSlot.dk, toSi: toSlot.si, toMKey: toSlot.mKey
         });
         state.swapModal = null;
         scheduleSave();
-        showToast("Proposta di cambio inviata! Il collega vedrà la notifica.");
+        showToast("Proposta inviata! Il collega vedrà la notifica.");
         render();
       }
-    }, "✉️ Invia proposta di cambio"));
+    }, toSlot && toSlot.noSwap ? "🤝 Chiedi copertura" : "✉️ Invia proposta di cambio"));
   }
   box.appendChild(btnRow);
   overlay.appendChild(box);
@@ -1270,20 +1303,30 @@ function assignSelf(key, si) {
 
 function approveSwap(notif) {
   try {
-    // Trova mKey corretto per fromDk
     const fromMKey = Object.keys(state.schedules).find(k => state.schedules[k][notif.fromDk]);
-    const toMKey   = Object.keys(state.schedules).find(k => state.schedules[k][notif.toDk]);
-    if (!fromMKey || !toMKey) { showToast("Errore: turno non trovato","#E74C3C"); return; }
+    if (!fromMKey) { showToast("Errore: turno non trovato","#E74C3C"); return; }
     const a = state.schedules[fromMKey][notif.fromDk].slots[notif.fromSi];
-    const b = state.schedules[toMKey][notif.toDk].slots[notif.toSi];
-    if (!a || !b) { showToast("Errore: slot non trovato","#E74C3C"); return; }
-    const tmp = a.doctorId; a.doctorId = b.doctorId; b.doctorId = tmp;
-    notif.read = true; notif.approved = true;
-    scheduleSave();
-    showToast("✓ Cambio effettuato! Il calendario è stato aggiornato.");
+    if (!a) { showToast("Errore: slot non trovato","#E74C3C"); return; }
+
+    if (notif.noSwap) {
+      // Copertura: il collega prende il turno del richiedente
+      a.doctorId = notif.toId;
+      notif.read = true; notif.approved = true;
+      scheduleSave();
+      showToast("✓ Copertura confermata! Il turno è stato assegnato.");
+    } else {
+      const toMKey = Object.keys(state.schedules).find(k => state.schedules[k][notif.toDk]);
+      if (!toMKey) { showToast("Errore: turno non trovato","#E74C3C"); return; }
+      const b = state.schedules[toMKey][notif.toDk].slots[notif.toSi];
+      if (!b) { showToast("Errore: slot non trovato","#E74C3C"); return; }
+      const tmp = a.doctorId; a.doctorId = b.doctorId; b.doctorId = tmp;
+      notif.read = true; notif.approved = true;
+      scheduleSave();
+      showToast("✓ Cambio effettuato! Il calendario è stato aggiornato.");
+    }
     render();
   } catch(e) {
-    showToast("Errore nell'approvazione: "+e.message, "#E74C3C");
+    showToast("Errore: "+e.message, "#E74C3C");
   }
 }
 
