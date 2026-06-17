@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ambulatorio Linfomi – Turni 2026</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #F0F4FA; min-height: 100vh; }
+button { font-family: inherit; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { width:36px;height:36px;border:4px solid rgba(255,255,255,0.2);border-top:4px solid #fff;border-radius:50%;animation:spin 1s linear infinite; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// Cattura tutti gli errori
+window.onerror = function(msg, src, line, col, err) {
+  document.getElementById("app").innerHTML = 
+    "<div style='padding:20px;font-family:system-ui'>" +
+    "<h2 style='color:red'>Errore JavaScript</h2>" +
+    "<p><b>Messaggio:</b> "+msg+"</p>" +
+    "<p><b>Riga:</b> "+line+", <b>Colonna:</b> "+col+"</p>" +
+    "<pre style='background:#f5f5f5;padding:10px;font-size:11px;overflow:auto'>"+(err?err.stack:"")+"</pre>" +
+    "</div>";
+  return true;
+};
+window.onunhandledrejection = function(e) {
+  document.getElementById("app").innerHTML = 
+    "<div style='padding:20px;font-family:system-ui'>" +
+    "<h2 style='color:red'>Promise Error</h2>" +
+    "<p>"+e.reason+"</p></div>";
+};
+// ── FIREBASE ──────────────────────────────────────────────────────────────────
+const FIREBASE_URL = "https://ambulatorio-linfoproliferative-default-rtdb.europe-west1.firebasedatabase.app/ambulatorio.json";
+
+async function saveAll(data) {
+  try {
+    await fetch(FIREBASE_URL, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+  } catch(e) { console.error("Save error:", e); }
+}
+
+async function loadAll() {
+  try {
+    const r = await fetch(FIREBASE_URL);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+// ── COSTANTI ──────────────────────────────────────────────────────────────────
+const DOCTORS = [
+  { id:1, name:"Federica Cavallo",  initials:"FC", color:"#E74C3C", active:true  },
+  { id:2, name:"Simone Ferrero",    initials:"SF", color:"#1ABC9C", active:true  },
+  { id:3, name:"Michele Clerico",   initials:"MC", color:"#3498DB", active:true  },
+  { id:4, name:"Simone Ragaini",    initials:"SR", color:"#E67E22", active:true  },
+  { id:5, name:"Chiara Consoli",    initials:"CC", color:"#9B59B6", active:true  },
+  { id:6, name:"Candida Vitale",    initials:"CV", color:"#E91E8C", active:true  },
+];
+
+const SHIFTS = {
+  la:  { label:"Linfomi A",      bg:"#FFF0F0", border:"#E74C3C", text:"#C0392B" },
+  lb:  { label:"Linfomi B",      bg:"#EBF5FB", border:"#3498DB", text:"#1A5276" },
+  pv:  { label:"Prime Visite 3", bg:"#F0FFF4", border:"#27AE60", text:"#1E8449" },
+  bom: { label:"Turno BOM",      bg:"#FFFBEA", border:"#F39C12", text:"#9A6600" },
+};
+
+const WEEKLY = [
+  { day:1, period:"mattina",    shift:"la",  doctorId:3 },
+  { day:1, period:"pomeriggio", shift:"lb",  doctorId:4 },
+  { day:2, period:"mattina",    shift:"la",  doctorId:3 },
+  { day:2, period:"mattina",    shift:"bom", doctorId:null },
+  { day:2, period:"pomeriggio", shift:"lb",  doctorId:5 },
+  { day:3, period:"mattina",    shift:"lb",  doctorId:2 },
+  { day:3, period:"pomeriggio", shift:"la",  doctorId:4 },
+  { day:4, period:"mattina",    shift:"pv",  doctorId:2 },
+  { day:4, period:"mattina",    shift:"lb",  doctorId:2 },
+  { day:5, period:"mattina",    shift:"la",  doctorId:5 },
+  { day:5, period:"pomeriggio", shift:"pv",  doctorId:5 },
+];
+
+const MONTHS = [
+  { year:2026, month:5,  label:"Giugno 2026"    },
+  { year:2026, month:6,  label:"Luglio 2026"    },
+  { year:2026, month:7,  label:"Agosto 2026"    },
+  { year:2026, month:8,  label:"Settembre 2026" },
+  { year:2026, month:9,  label:"Ottobre 2026"   },
+  { year:2026, month:10, label:"Novembre 2026"  },
+  { year:2026, month:11, label:"Dicembre 2026"  },
+];
+
+const MS = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+const DN = ["Domenica","Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
+
+const HOLIDAYS = {
+  "2026-06-02":"Festa della Repubblica",
+  "2026-06-24":"San Giovanni Battista",
+  "2026-08-15":"Ferragosto",
+  "2026-11-01":"Ognissanti",
+  "2026-12-08":"Immacolata",
+  "2026-12-25":"Natale",
+  "2026-12-26":"Santo Stefano"
+};
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+const pad = n => String(n).padStart(2,"0");
+const dk = (y,m,d) => y+"-"+pad(m+1)+"-"+pad(d);
+const today = dk(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+const getDoc = id => DOCTORS.find(d => d.id === id);
+
+function genMonth(year, month) {
+  const days = new Date(year, month+1, 0).getDate();
+  const result = {};
+  for (let d=1; d<=days; d++) {
+    const date = new Date(year, month, d);
+    const dow = date.getDay();
+    const key = dk(year, month, d);
+    const wk = dow===0||dow===6;
+    const hol = HOLIDAYS[key] || null;
+    result[key] = {
+      day:d, dayName:DN[dow], dow, month, year,
+      weekend:wk, holiday:!!hol, holidayName:hol,
+      slots: (!wk && !hol) ? WEEKLY.filter(t=>t.day===dow).map(t=>({...t})) : []
+    };
+  }
+  return result;
+}
+
+function initSchedules() {
+  const s = {};
+  MONTHS.forEach(({year,month}) => { s[year+"-"+month] = genMonth(year, month); });
+  return s;
+}
+
+function gridCells(year, month) {
+  const cells = [];
+  const days = new Date(year, month+1, 0).getDate();
+  const firstDow = (new Date(year, month, 1).getDay()+6)%7;
+  for (let i=0; i<firstDow; i++) cells.push(null);
+  for (let d=1; d<=days; d++) cells.push(dk(year,month,d));
+  while (cells.length%7!==0) cells.push(null);
+  return cells;
+}
+
+// ── STATO APP ─────────────────────────────────────────────────────────────────
+const state = {
+  loggedInId: null,
+  view: "calendar",
+  calView: "month",
+  monthIdx: 0,
+  schedules: initSchedules(),
+  notifications: [],
+  selectedDate: null,
+  swapModal: null,
+  absenceModal: null,
+  toast: null,
+  loaded: false,
+  weekStart: (() => {
+    const d = new Date();
+    d.setDate(d.getDate()-((d.getDay()+6)%7));
+    d.setHours(0,0,0,0);
+    return d;
+  })()
+};
+
+let saveTimeout = null;
+function scheduleSave() {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    saveAll({ schedules: state.schedules, notifications: state.notifications });
+  }, 1000);
+}
+
+// ── RENDER ENGINE ──────────────────────────────────────────────────────────────
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  if (attrs) {
+    Object.entries(attrs).forEach(([k,v]) => {
+      if (k === "style" && typeof v === "object") Object.assign(e.style, v);
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (k === "className") e.className = v;
+      else e.setAttribute(k, v);
+    });
+  }
+  children.flat(Infinity).forEach(c => {
+    if (c == null || c === false) return;
+    e.appendChild(typeof c === "string" || typeof c === "number" ? document.createTextNode(c) : c);
+  });
+  return e;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  app.appendChild(buildApp());
+}
+
+// ── APP ───────────────────────────────────────────────────────────────────────
+function buildApp() {
+  if (!state.loaded) return buildLoading();
+  if (!state.loggedInId) return buildLogin();
+  const me = getDoc(state.loggedInId);
+  const curKey = MONTHS[state.monthIdx].year+"-"+MONTHS[state.monthIdx].month;
+  if (!state.schedules[curKey]) state.schedules[curKey] = genMonth(MONTHS[state.monthIdx].year, MONTHS[state.monthIdx].month);
+  const monthData = state.schedules[curKey];
+
+  return el("div", {style:{fontFamily:"system-ui,sans-serif",background:"#F0F4FA",minHeight:"100vh"}},
+    buildHeader(me, monthData),
+    state.view==="calendar" ? buildCalendar(me, monthData, curKey) :
+    state.view==="absences" ? buildAbsences(me) :
+    buildStats(),
+    state.swapModal ? buildSwapModal(me, monthData) : null,
+    state.absenceModal ? buildAbsenceModal(me, monthData) : null,
+    state.toast ? buildToast() : null
+  );
+}
+
+function buildLoading() {
+  return el("div", {style:{minHeight:"100vh",background:"linear-gradient(135deg,#1A2744,#2C3E6B)",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:"16px"}},
+    el("div", {style:{fontSize:"48px"}}, "🏥"),
+    el("div", {style:{color:"#fff",fontWeight:"700",fontSize:"18px"}}, "Ambulatorio Linfomi"),
+    el("div", {style:{color:"rgba(255,255,255,0.6)",fontSize:"14px"}}, "Caricamento in corso..."),
+    el("div", {className:"spinner"})
+  );
+}
+
+function buildLogin() {
+  let selected = null;
+  const container = el("div", {style:{minHeight:"100vh",background:"linear-gradient(135deg,#1A2744,#2C3E6B)",display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}});
+  const box = el("div", {style:{background:"#fff",borderRadius:"20px",padding:"30px 26px",width:"100%",maxWidth:"390px",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}});
+
+  const btnContainer = el("div", {style:{display:"flex",flexDirection:"column",gap:"7px",marginBottom:"18px"}});
+  const loginBtn = el("button", {
+    style:{width:"100%",padding:"12px",background:"#ccc",color:"#fff",border:"none",borderRadius:"11px",fontWeight:"700",fontSize:"14px",cursor:"not-allowed"},
+    onclick: () => {
+      if (!selected) return;
+      state.loggedInId = selected;
+      render();
+    }
+  }, "Accedi →");
+
+  DOCTORS.forEach(d => {
+    const btn = el("button", {
+      style:{display:"flex",alignItems:"center",gap:"11px",padding:"11px 15px",borderRadius:"11px",border:"2px solid #E8EEF5",background:"#FAFAFA",cursor:d.active?"pointer":"not-allowed",opacity:d.active?"1":"0.45",width:"100%"},
+      onclick: () => {
+        if (!d.active) return;
+        selected = d.id;
+        btnContainer.querySelectorAll("button").forEach(b => {
+          b.style.border = "2px solid #E8EEF5";
+          b.style.background = "#FAFAFA";
+        });
+        btn.style.border = "2px solid "+d.color;
+        btn.style.background = d.color+"18";
+        loginBtn.style.background = "#1A2744";
+        loginBtn.style.cursor = "pointer";
+      }
+    },
+      el("div", {style:{width:"36px",height:"36px",borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:"700",fontSize:"13px",flexShrink:"0"}}, d.initials),
+      el("div", {},
+        el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744"}}, d.name),
+        !d.active ? el("div", {style:{fontSize:"10px",color:"#aaa"}}, "Rientro: luglio 2026") : null
+      )
+    );
+    btnContainer.appendChild(btn);
+  });
+
+  box.appendChild(el("div", {style:{textAlign:"center",marginBottom:"22px"}},
+    el("div", {style:{fontSize:"42px",marginBottom:"7px"}}, "🏥"),
+    el("div", {style:{fontWeight:"800",fontSize:"19px",color:"#1A2744"}}, "Ambulatorio Linfomi"),
+    el("div", {style:{color:"#888",fontSize:"12px",marginTop:"3px"}}, "Torino · Turni 2026")
+  ));
+  box.appendChild(btnContainer);
+  box.appendChild(loginBtn);
+  container.appendChild(box);
+  return container;
+}
+
+function buildHeader(me, monthData) {
+  const emptyCount = countEmpty(monthData);
+  const unread = state.notifications.filter(n=>!n.read).length;
+
+  const header = el("header", {style:{background:"#1A2744",color:"#fff",padding:"0 16px",height:"56px",display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 2px 10px rgba(0,0,0,0.3)",position:"sticky",top:"0",zIndex:"100"}});
+
+  // Logo
+  header.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"8px"}},
+    el("span", {style:{fontSize:"20px"}}, "🏥"),
+    el("div", {},
+      el("div", {style:{fontWeight:"700",fontSize:"13px"}}, "Ambulatorio Linfomi"),
+      el("div", {style:{fontSize:"10px",opacity:"0.6"}}, "Torino · 2026")
+    )
+  ));
+
+  // Right side
+  const right = el("div", {style:{display:"flex",alignItems:"center",gap:"5px"}});
+
+  // Nav buttons
+  [["calendar","📅 Turni"],["absences","🏖️ Assenze"],["stats","📊 Stats"]].forEach(([v,label]) => {
+    right.appendChild(el("button", {
+      style:{background:state.view===v?"rgba(255,255,255,0.22)":"rgba(255,255,255,0.07)",border:"none",color:"#fff",borderRadius:"7px",padding:"5px 8px",cursor:"pointer",fontSize:"11px",fontWeight:"600"},
+      onclick: () => { state.view = v; render(); }
+    }, label));
+  });
+
+  // Empty alert
+  if (emptyCount > 0 && state.view === "calendar") {
+    right.appendChild(el("div", {style:{background:"#E74C3C",color:"#fff",borderRadius:"7px",padding:"4px 7px",fontSize:"10px",fontWeight:"800"}}, "🚨"+emptyCount));
+  }
+
+  // Notifications
+  const notifBtn = el("button", {
+    style:{background:"rgba(255,255,255,0.07)",border:"none",color:"#fff",borderRadius:"7px",padding:"5px 8px",cursor:"pointer",fontSize:"14px",position:"relative"},
+    onclick: () => { state.showNotif = !state.showNotif; render(); }
+  }, "🔔", unread > 0 ? el("span", {style:{background:"#E74C3C",borderRadius:"50%",padding:"0 4px",fontSize:"9px",fontWeight:"700",marginLeft:"2px"}}, String(unread)) : null);
+  right.appendChild(notifBtn);
+
+  // User + logout
+  right.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"5px"}},
+    el("div", {style:{width:"26px",height:"26px",borderRadius:"50%",background:me.color,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"700",fontSize:"10px"}}, me.initials),
+    el("button", {
+      style:{background:"rgba(255,255,255,0.07)",border:"none",color:"#fff",borderRadius:"5px",padding:"3px 7px",cursor:"pointer",fontSize:"10px"},
+      onclick: () => { state.loggedInId = null; state.view = "calendar"; state.selectedDate = null; render(); }
+    }, "Esci")
+  ));
+
+  header.appendChild(right);
+
+  // Notifications panel
+  if (state.showNotif) {
+    const panel = el("div", {style:{position:"fixed",top:"56px",right:"8px",background:"#fff",borderRadius:"12px",boxShadow:"0 8px 32px rgba(0,0,0,0.2)",width:"320px",zIndex:"200",maxHeight:"400px",overflowY:"auto"}});
+    panel.appendChild(el("div", {style:{padding:"10px 14px",borderBottom:"1px solid #eee",fontWeight:"700",color:"#1A2744",fontSize:"13px"}}, "Notifiche"));
+    if (state.notifications.length === 0) {
+      panel.appendChild(el("div", {style:{padding:"16px",color:"#aaa",textAlign:"center"}}, "Nessuna notifica"));
+    }
+    state.notifications.forEach(n => {
+      const item = el("div", {style:{padding:"10px 14px",borderBottom:"1px solid #F8F8F8",background:n.read?"#fff":"#EBF5FB"}},
+        el("div", {style:{fontSize:"12px",fontWeight:"700",color:"#1A2744",marginBottom:"3px"}}, n.text),
+        n.detail ? el("div", {style:{fontSize:"10px",color:"#666",marginBottom:"6px",background:"#F8FAFC",borderRadius:"5px",padding:"4px 8px"}}, n.detail) : null
+      );
+      if (!n.read && !n.approved && (n.type === "swap" || n.type === "cover")) {
+        const btns = el("div", {style:{display:"flex",gap:"6px"}});
+        btns.appendChild(el("button", {
+          style:{background:"#27AE60",color:"#fff",border:"none",borderRadius:"5px",padding:"4px 10px",cursor:"pointer",fontSize:"11px",fontWeight:"700"},
+          onclick: () => { approveSwap(n); }
+        }, "✓ Approva"));
+        btns.appendChild(el("button", {
+          style:{background:"#FDECEA",color:"#E74C3C",border:"none",borderRadius:"5px",padding:"4px 8px",cursor:"pointer",fontSize:"11px"},
+          onclick: () => { n.read = true; scheduleSave(); render(); }
+        }, "✕ Rifiuta"));
+        item.appendChild(btns);
+      }
+      if (n.approved) item.appendChild(el("span", {style:{fontSize:"10px",color:"#27AE60",fontWeight:"700"}}, "✓ Cambio effettuato"));
+      panel.appendChild(item);
+    });
+    header.appendChild(panel);
+  }
+
+  return header;
+}
+
+function buildCalendar(me, monthData, curKey) {
+  const main = el("main", {style:{padding:"14px 16px",maxWidth:"1000px",margin:"0 auto"}});
+
+  // Switch mese/settimana
+  const switchRow = el("div", {style:{display:"flex",gap:"6px",marginBottom:"12px"}});
+  ["month","week"].forEach((v, i) => {
+    switchRow.appendChild(el("button", {
+      style:{padding:"5px 14px",borderRadius:"20px",border:"2px solid "+(state.calView===v?"#1A2744":"#E8EEF5"),background:state.calView===v?"#1A2744":"#fff",color:state.calView===v?"#fff":"#1A2744",fontWeight:"700",fontSize:"11px",cursor:"pointer"},
+      onclick: () => { state.calView = v; render(); }
+    }, i===0?"📅 Mese":"📋 Settimana"));
+  });
+  main.appendChild(switchRow);
+
+  // Legenda
+  const legend = el("div", {style:{display:"flex",flexWrap:"wrap",gap:"5px",marginBottom:"10px"}});
+  DOCTORS.forEach(d => {
+    legend.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"4px",background:"#fff",borderRadius:"20px",padding:"3px 10px",fontSize:"10px",fontWeight:"600",boxShadow:"0 1px 3px rgba(0,0,0,0.06)",opacity:d.active?"1":"0.5"}},
+      el("div", {style:{width:"8px",height:"8px",borderRadius:"50%",background:d.color}}),
+      d.name,
+      !d.active ? el("span", {style:{fontSize:"8px",color:"#aaa"}}, "(lug)") : null,
+      d.id===state.loggedInId ? el("span", {style:{fontSize:"8px",background:d.color,color:"#fff",borderRadius:"3px",padding:"0 3px"}}, "TU") : null
+    ));
+  });
+  main.appendChild(legend);
+
+  if (state.calView === "week") {
+    main.appendChild(buildWeekView(me));
+  } else {
+    main.appendChild(buildMonthView(me, monthData, curKey));
+  }
+
+  return main;
+}
+
+function buildMonthView(me, monthData, curKey) {
+  const wrap = el("div", {});
+  const {year, month} = MONTHS[state.monthIdx];
+
+  // Selezione mese
+  const monthSel = el("div", {style:{display:"flex",flexWrap:"wrap",gap:"5px",marginBottom:"10px"}});
+  MONTHS.forEach((m, i) => {
+    const mKey = m.year+"-"+m.month;
+    const ec = countEmpty(state.schedules[mKey]);
+    const btn = el("button", {
+      style:{padding:"5px 11px",borderRadius:"20px",border:"2px solid "+(state.monthIdx===i?"#1A2744":"#E8EEF5"),background:state.monthIdx===i?"#1A2744":"#fff",color:state.monthIdx===i?"#fff":"#1A2744",fontWeight:"600",fontSize:"11px",cursor:"pointer",position:"relative"},
+      onclick: () => { state.monthIdx = i; state.selectedDate = null; render(); }
+    }, m.label.split(" ")[0]);
+    if (ec > 0) {
+      btn.appendChild(el("span", {style:{position:"absolute",top:"-5px",right:"-5px",background:"#E74C3C",color:"#fff",borderRadius:"50%",width:"14px",height:"14px",fontSize:"8px",fontWeight:"800",display:"flex",alignItems:"center",justifyContent:"center"}}, String(ec)));
+    }
+    monthSel.appendChild(btn);
+  });
+  wrap.appendChild(monthSel);
+
+  // Calendario
+  const cal = el("div", {style:{background:"#fff",borderRadius:"14px",boxShadow:"0 2px 16px rgba(0,0,0,0.06)",overflow:"hidden",marginBottom:"12px"}});
+
+  // Nav
+  const nav = el("div", {style:{background:"#1A2744",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}});
+  nav.appendChild(el("button", {style:{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:"6px",padding:"3px 12px",cursor:"pointer",fontSize:"16px",opacity:state.monthIdx===0?"0.3":"1"},onclick:()=>{if(state.monthIdx>0){state.monthIdx--;state.selectedDate=null;render();}}}, "‹"));
+  nav.appendChild(el("div", {style:{fontWeight:"700",fontSize:"14px",color:"#fff"}}, MONTHS[state.monthIdx].label));
+  nav.appendChild(el("button", {style:{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:"6px",padding:"3px 12px",cursor:"pointer",fontSize:"16px",opacity:state.monthIdx===MONTHS.length-1?"0.3":"1"},onclick:()=>{if(state.monthIdx<MONTHS.length-1){state.monthIdx++;state.selectedDate=null;render();}}}, "›"));
+  cal.appendChild(nav);
+
+  // Header giorni
+  const hdr = el("div", {style:{display:"grid",gridTemplateColumns:"repeat(5,1.6fr) repeat(2,0.55fr)",background:"#2C3E6B"}});
+  ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"].forEach((d,i) => {
+    hdr.appendChild(el("div", {style:{textAlign:"center",color:i>=5?"#4B5563":"#93C5FD",fontWeight:"700",fontSize:"10px",padding:"7px 0"}}, d));
+  });
+  cal.appendChild(hdr);
+
+  // Celle
+  const grid = el("div", {style:{display:"grid",gridTemplateColumns:"repeat(5,1.6fr) repeat(2,0.55fr)",gap:"1px",background:"#E8EEF5"}});
+  gridCells(year, month).forEach((key, ci) => {
+    if (!key) {
+      grid.appendChild(el("div", {style:{background:"#F0F2F5",minHeight:"110px",minWidth:"0"}}));
+      return;
+    }
+    const info = monthData[key];
+    if (!info) { grid.appendChild(el("div", {style:{background:"#F0F2F5",minHeight:"110px"}})); return; }
+    if (!info.slots) info.slots = [];
+
+    if (info.weekend) {
+      grid.appendChild(el("div", {style:{minHeight:"110px",background:"#EBEBEB",padding:"5px 2px",borderTop:"3px solid transparent",minWidth:"0",overflow:"hidden",display:"flex",flexDirection:"column",alignItems:"center"}},
+        el("div", {style:{fontWeight:"400",fontSize:"11px",color:"#AAAAAA",textAlign:"center"}}, String(info.day))
+      ));
+      return;
+    }
+
+    const isHol = info.holiday;
+    const slots = (info && info.slots) ? info.slots : [];
+    const empties = slots.filter(s => !s.doctorId);
+    const hasEmpty = empties.length > 0;
+    const isSelected = state.selectedDate === key;
+    const isToday = key === today;
+    const clickable = !isHol && slots.length > 0;
+
+    const cell = el("div", {
+      style:{minHeight:"110px",background:isSelected?"#EFF6FF":isHol?"#FFFDE7":"#fff",padding:"6px 5px",cursor:clickable?"pointer":"default",borderTop:hasEmpty?"3px solid #E74C3C":isSelected?"3px solid #3498DB":isHol?"3px solid #F59E0B":"3px solid transparent",minWidth:"0",overflow:"hidden"},
+      onclick: () => { if (clickable) { state.selectedDate = isSelected ? null : key; render(); } }
+    });
+
+    // Numero giorno
+    const dayNum = el("div", {style:{display:"flex",alignItems:"center",gap:"2px",marginBottom:"3px"}});
+    dayNum.appendChild(el("div", {style:{fontWeight:"700",fontSize:"14px",color:isToday?"#fff":isHol?"#92400E":"#1A2744",background:isToday?"#3498DB":"transparent",width:"24px",height:"24px",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:"0"}}, String(info.day)));
+    if (isHol) dayNum.appendChild(el("span", {style:{fontSize:"9px"}}, "🎉"));
+    cell.appendChild(dayNum);
+
+    if (isHol) {
+      cell.appendChild(el("div", {style:{background:"#FEF3C7",border:"1px solid #F59E0B",borderRadius:"4px",padding:"2px 4px",marginBottom:"2px"}},
+        el("div", {style:{fontSize:"8px",color:"#92400E",fontWeight:"700"}}, "🎉 Festività"),
+        el("div", {style:{fontSize:"8px",color:"#B45309",fontWeight:"600"}}, info.holidayName)
+      ));
+    }
+
+    if (hasEmpty && !isHol) {
+      empties.forEach(s => {
+        cell.appendChild(el("div", {style:{background:"#E74C3C",color:"#fff",borderRadius:"4px",padding:"2px 4px",marginBottom:"3px"}},
+          el("div", {style:{display:"flex",alignItems:"center",gap:"2px"}},
+            el("span", {style:{fontSize:"9px"}}, "🚨"),
+            el("span", {style:{fontSize:"8px",fontWeight:"800"}}, "SCOPERTO")
+          ),
+          el("div", {style:{fontSize:"9px",fontWeight:"700"}}, SHIFTS[s.shift].label)
+        ));
+      });
+    }
+
+    if (!isHol) {
+      slots.filter(s=>s.doctorId).slice(0,3).forEach(s => {
+        const sl = SHIFTS[s.shift];
+        const doc = getDoc(s.doctorId);
+        const mine = s.doctorId === state.loggedInId;
+        const badge = el("div", {style:{background:sl.bg,border:"2.5px solid "+(mine?me.color:sl.border),borderRadius:"6px",padding:"4px 5px",marginBottom:"3px",minWidth:"0"}},
+          el("div", {style:{display:"flex",alignItems:"center",gap:"4px",marginBottom:"2px"}},
+            el("span", {style:{width:"8px",height:"8px",borderRadius:"50%",background:doc.color,flexShrink:"0",display:"inline-block"}}),
+            el("span", {style:{fontSize:"11px",fontWeight:"700",color:"#1A2744"}}, doc.initials),
+            mine ? el("span", {style:{fontSize:"8px",background:me.color,color:"#fff",borderRadius:"3px",padding:"0 3px",flexShrink:"0"}}, "TU") : null
+          ),
+          el("div", {style:{fontSize:"10px",fontWeight:"700",color:sl.text,paddingLeft:"12px"}}, sl.label)
+        );
+        cell.appendChild(badge);
+      });
+    }
+
+    grid.appendChild(cell);
+  });
+  cal.appendChild(grid);
+  wrap.appendChild(cal);
+
+  // Dettaglio giorno
+  if (state.selectedDate && monthData[state.selectedDate]) {
+    wrap.appendChild(buildDayDetail(me, monthData, state.selectedDate));
+  }
+
+  // Riepilogo miei turni
+  wrap.appendChild(buildMyMonthSummary(me, monthData));
+
+  // Alert scoperti
+  const emptyCount = countEmpty(monthData);
+  if (emptyCount > 0) {
+    const alertBox = el("div", {style:{marginTop:"10px",background:"#FDECEA",border:"3px solid #E74C3C",borderRadius:"12px",padding:"12px 16px"}},
+      el("div", {style:{fontWeight:"800",color:"#C0392B",marginBottom:"8px",fontSize:"13px"}}, "🚨 "+emptyCount+" slot scoperti")
+    );
+    Object.keys(monthData).forEach(key => {
+      ((monthData[key] && monthData[key].slots) || []).filter(s=>!s.doctorId).forEach((s,i) => {
+        const day = monthData[key];
+        const sl = SHIFTS[s.shift];
+        const idx = (monthData[key].slots||[]).indexOf(s);
+        const row = el("div", {style:{background:"#fff",border:"2px solid #E74C3C",borderRadius:"8px",padding:"7px 12px",display:"flex",alignItems:"center",gap:"8px",marginBottom:"5px"}},
+          el("span", {style:{fontSize:"14px"}}, "🚨"),
+          el("div", {style:{flex:"1"}},
+            el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#C0392B"}}, day.dayName+" "+day.day+" — "+s.period),
+            el("div", {style:{fontSize:"10px",color:"#666"}}, sl.label+(s.refusedBy?" · "+getDoc(s.refusedBy).name:"")+(s.refuseReason?" ("+s.refuseReason+")":""))
+          ),
+          el("button", {
+            style:{background:"#27AE60",color:"#fff",border:"none",borderRadius:"6px",padding:"5px 9px",cursor:"pointer",fontSize:"10px",fontWeight:"700",flexShrink:"0"},
+            onclick: () => { assignSelf(key, idx); }
+          }, "Copri")
+        );
+        alertBox.appendChild(row);
+      });
+    });
+    wrap.appendChild(alertBox);
+  }
+
+  return wrap;
+}
+
+function buildWeekView(me) {
+  const ws = state.weekStart;
+  const days = Array.from({length:7}, (_,i) => { const d=new Date(ws); d.setDate(d.getDate()+i); return d; });
+  const monStr = days[0].getDate()+" "+MS[days[0].getMonth()];
+  const sunStr = days[6].getDate()+" "+MS[days[6].getMonth()]+" "+days[6].getFullYear();
+
+  const wrap = el("div", {style:{background:"#fff",borderRadius:"14px",boxShadow:"0 2px 16px rgba(0,0,0,0.06)",overflow:"hidden",marginBottom:"12px"}});
+
+  // Nav
+  const nav = el("div", {style:{background:"#1A2744",padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}});
+  nav.appendChild(el("button", {style:{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:"6px",padding:"3px 12px",cursor:"pointer",fontSize:"16px"},onclick:()=>{const d=new Date(state.weekStart);d.setDate(d.getDate()-7);state.weekStart=d;render();}}, "‹"));
+  nav.appendChild(el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#fff"}}, monStr+" – "+sunStr));
+  nav.appendChild(el("button", {style:{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:"6px",padding:"3px 12px",cursor:"pointer",fontSize:"16px"},onclick:()=>{const d=new Date(state.weekStart);d.setDate(d.getDate()+7);state.weekStart=d;render();}}, "›"));
+  wrap.appendChild(nav);
+
+  // Header giorni
+  const hdr = el("div", {style:{display:"grid",gridTemplateColumns:"52px repeat(5,1fr) repeat(2,0.5fr)",background:"#2C3E6B"}});
+  hdr.appendChild(el("div", {style:{padding:"7px 3px"}}));
+  const dayNames = ["Lun","Mar","Mer","Gio","Ven","Sab","Dom"];
+  days.forEach((d,i) => {
+    const key = dk(d.getFullYear(), d.getMonth(), d.getDate());
+    const mKey = d.getFullYear()+"-"+d.getMonth();
+    const info = state.schedules[mKey] && state.schedules[mKey][key];
+    const isToday = d.toDateString()===new Date().toDateString();
+    const isWk = i>=5;
+    hdr.appendChild(el("div", {style:{textAlign:"center",padding:"7px 2px"}},
+      el("div", {style:{fontSize:"9px",fontWeight:"600",color:isWk?"#4B5563":"#93C5FD"}}, dayNames[i]),
+      el("div", {style:{fontSize:isWk?"11px":"14px",fontWeight:"700",color:isToday?"#3B82F6":info&&info.holiday?"#F59E0B":isWk?"#4B5563":"#fff",marginTop:"2px"}}, String(d.getDate())),
+      info&&info.holiday ? el("div", {style:{fontSize:"7px",color:"#F59E0B"}}, "🎉") : null
+    ));
+  });
+  wrap.appendChild(hdr);
+
+  // Righe mattina/pomeriggio
+  ["mattina","pomeriggio"].forEach(period => {
+    const row = el("div", {style:{display:"grid",gridTemplateColumns:"52px repeat(5,1fr) repeat(2,0.5fr)",borderBottom:"1px solid #F1F5F9"}});
+    row.appendChild(el("div", {style:{background:period==="mattina"?"#F0F7FF":"#FDF4FF",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"6px 2px",borderRight:"1px solid #E8EEF5"}},
+      el("span", {style:{fontSize:"12px"}}, period==="mattina"?"☀️":"🌙"),
+      el("span", {style:{fontSize:"7px",fontWeight:"700",color:"#888",textTransform:"uppercase",marginTop:"2px",textAlign:"center"}}, period==="mattina"?"Mat":"Pom")
+    ));
+    days.forEach((d,di) => {
+      const key = dk(d.getFullYear(), d.getMonth(), d.getDate());
+      const mKey = d.getFullYear()+"-"+d.getMonth();
+      const info = state.schedules[mKey] && state.schedules[mKey][key];
+      const isWk = di>=5;
+      const isHol = info&&info.holiday;
+      if (isWk||!info||isHol) {
+        row.appendChild(el("div", {style:{background:isHol?"#FFFDE7":isWk?"#F5F5F7":"#FAFAFA",padding:"3px",borderRight:"1px solid #F1F5F9",minHeight:"68px"}}));
+        return;
+      }
+      const periodSlots = (info.slots||[]).filter(s=>s.period===period);
+      const cell = el("div", {style:{padding:"3px",borderRight:"1px solid #F1F5F9",minHeight:"68px",background:"#fff"}});
+      if (periodSlots.length===0) {
+        cell.appendChild(el("div", {style:{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:"#E8EEF5",fontSize:"14px"}}, "—"));
+      } else {
+        periodSlots.forEach(slot => {
+          const sl = SHIFTS[slot.shift];
+          const doc = getDoc(slot.doctorId);
+          const isEmpty = !slot.doctorId;
+          const isMe = slot.doctorId===state.loggedInId;
+          const gIdx = info.slots.indexOf(slot);
+          const badge = el("div", {
+            style:{background:isEmpty?"#FDECEA":sl.bg,border:"2px solid "+(isEmpty?"#E74C3C":isMe?me.color:sl.border),borderRadius:"6px",padding:"4px 5px",marginBottom:"3px",cursor:(isEmpty||isMe)?"pointer":"default"},
+            onclick: () => { if(isEmpty) assignSelf(key,gIdx); else if(isMe) { state.swapModal={dk:key,si:gIdx}; render(); } }
+          });
+          if (isEmpty) {
+            badge.appendChild(el("div", {style:{fontSize:"8px",fontWeight:"800",color:"#E74C3C"}}, "🚨 SCOPERTO"));
+            badge.appendChild(el("div", {style:{fontSize:"8px",fontWeight:"700",color:"#C0392B",marginTop:"1px"}}, sl.label));
+          } else {
+            badge.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"3px",marginBottom:"2px"}},
+              el("span", {style:{width:"7px",height:"7px",borderRadius:"50%",background:doc.color,flexShrink:"0"}}),
+              el("span", {style:{fontSize:"10px",fontWeight:"700",color:"#1A2744"}}, doc.initials),
+              isMe ? el("span", {style:{fontSize:"7px",background:me.color,color:"#fff",borderRadius:"3px",padding:"0 3px"}}, "TU") : null
+            ));
+            badge.appendChild(el("div", {style:{fontSize:"9px",fontWeight:"700",color:sl.text,paddingLeft:"10px"}}, sl.label));
+            if (isMe) badge.appendChild(el("div", {style:{fontSize:"7px",color:"#aaa",paddingLeft:"10px"}}, "🔄 cambio"));
+          }
+          cell.appendChild(badge);
+        });
+      }
+      row.appendChild(cell);
+    });
+    wrap.appendChild(row);
+  });
+
+  return wrap;
+}
+
+function buildDayDetail(me, monthData, key) {
+  const info = monthData[key];
+  const box = el("div", {style:{background:"#fff",borderRadius:"12px",boxShadow:"0 2px 16px rgba(0,0,0,0.08)",padding:"14px 16px",marginBottom:"10px",border:"2px solid #3498DB"}});
+
+  const hdr = el("div", {style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}});
+  hdr.appendChild(el("div", {style:{fontWeight:"800",fontSize:"14px",color:"#1A2744"}}, info.dayName+" "+info.day));
+  hdr.appendChild(el("button", {style:{background:"#F0F4FA",border:"none",borderRadius:"6px",padding:"3px 8px",cursor:"pointer",fontSize:"12px",color:"#666"},onclick:()=>{state.selectedDate=null;render();}}, "✕"));
+  box.appendChild(hdr);
+
+  ["mattina","pomeriggio"].forEach(period => {
+    const slots = (info.slots||[]).filter(s=>s.period===period);
+    box.appendChild(el("div", {style:{marginBottom:"8px"}},
+      el("div", {style:{fontSize:"10px",fontWeight:"700",color:"#888",textTransform:"uppercase",marginBottom:"5px"}}, period==="mattina"?"☀️ Mattina":"🌙 Pomeriggio")
+    ));
+    const pBox = box.lastChild;
+    if (slots.length===0) {
+      pBox.appendChild(el("div", {style:{color:"#ccc",fontSize:"11px"}}, "Nessuno slot"));
+    } else {
+      slots.forEach(slot => {
+        const gi = info.slots.indexOf(slot);
+        const sl = SHIFTS[slot.shift];
+        const doc = getDoc(slot.doctorId);
+        const isEmpty = !slot.doctorId;
+        const isMe = slot.doctorId===state.loggedInId;
+        const row = el("div", {style:{display:"flex",alignItems:"center",gap:"8px",padding:"9px 12px",border:"2px solid "+(isEmpty?"#E74C3C":isMe?me.color:sl.border),borderRadius:"9px",background:isEmpty?"#FDECEA":sl.bg,marginBottom:"5px"}});
+        const info2 = el("div", {style:{flex:"1"}});
+        info2.appendChild(el("div", {style:{fontWeight:"700",fontSize:"11px",color:isEmpty?"#E74C3C":sl.text}}, sl.label));
+        if (!isEmpty) {
+          info2.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"5px",marginTop:"3px"}},
+            el("div", {style:{width:"22px",height:"22px",borderRadius:"50%",background:doc.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"9px",color:"#fff",fontWeight:"700"}}, doc.initials),
+            el("span", {style:{fontSize:"11px",fontWeight:"600",color:"#1A2744"}}, doc.name),
+            isMe ? el("span", {style:{fontSize:"8px",background:me.color,color:"#fff",borderRadius:"3px",padding:"1px 4px"}}, "TU") : null
+          ));
+        } else {
+          info2.appendChild(el("div", {style:{fontSize:"11px",color:"#E74C3C",marginTop:"3px",fontWeight:"700"}}, "🚨 Scoperto"+(slot.refusedBy?" · "+getDoc(slot.refusedBy).name:"")+(slot.refuseReason?" ("+slot.refuseReason+")":"")));
+        }
+        row.appendChild(info2);
+        const btns = el("div", {style:{display:"flex",gap:"5px",flexShrink:"0"}});
+        if (isEmpty) btns.appendChild(el("button", {style:{background:"#27AE60",color:"#fff",border:"none",borderRadius:"6px",padding:"5px 8px",cursor:"pointer",fontSize:"10px",fontWeight:"700"},onclick:()=>assignSelf(key,gi)}, "Copri"));
+        if (isMe) btns.appendChild(el("button", {style:{background:"#1A2744",color:"#fff",border:"none",borderRadius:"6px",padding:"5px 8px",cursor:"pointer",fontSize:"10px",fontWeight:"700"},onclick:()=>{state.swapModal={dk:key,si:gi};render();}}, "🔄"));
+        if (isMe) btns.appendChild(el("button", {style:{background:"#FDECEA",color:"#E74C3C",border:"2px solid #E74C3C",borderRadius:"6px",padding:"5px 8px",cursor:"pointer",fontSize:"10px",fontWeight:"700"},onclick:()=>{state.absenceModal={dk:key,si:gi};render();}}, "🚫"));
+        row.appendChild(btns);
+        pBox.appendChild(row);
+      });
+    }
+  });
+  return box;
+}
+
+function buildMyMonthSummary(me, monthData) {
+  const mySlots = [];
+  Object.keys(monthData).forEach(key => {
+    ((monthData[key] && monthData[key].slots)||[]).forEach(s => {
+      if (s.doctorId===state.loggedInId) mySlots.push({key, day:monthData[key], slot:s});
+    });
+  });
+  const box = el("div", {style:{background:"#fff",borderRadius:"10px",boxShadow:"0 1px 8px rgba(0,0,0,0.05)",padding:"12px 14px",marginTop:"10px"}},
+    el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"8px"}},
+      el("span", {style:{display:"inline-block",width:"9px",height:"9px",borderRadius:"50%",background:me.color,marginRight:"6px"}}),
+      "I miei turni — "+MONTHS[state.monthIdx].label+" ("+mySlots.length+")"
+    )
+  );
+  if (mySlots.length===0) {
+    box.appendChild(el("div", {style:{color:"#aaa",fontSize:"11px"}}, "Nessun turno assegnato."));
+  } else {
+    const list = el("div", {style:{display:"flex",flexWrap:"wrap",gap:"6px"}});
+    mySlots.forEach(item => {
+      const sl = SHIFTS[item.slot.shift];
+      list.appendChild(el("div", {style:{background:sl.bg,border:"2px solid "+me.color,borderRadius:"8px",padding:"6px 10px",minWidth:"120px"}},
+        el("div", {style:{fontWeight:"700",fontSize:"10px",color:me.color}}, item.day.dayName+" "+item.day.day),
+        el("div", {style:{fontSize:"9px",color:"#555",marginTop:"1px"}}, (item.slot.period==="mattina"?"☀️":"🌙")+" "+item.slot.period),
+        el("div", {style:{fontSize:"9px",fontWeight:"600",color:sl.text,marginTop:"2px"}}, sl.label)
+      ));
+    });
+    box.appendChild(list);
+  }
+  return box;
+}
+
+function buildAbsences(me) {
+  const main = el("main", {style:{padding:"14px 16px",maxWidth:"700px",margin:"0 auto"}});
+
+  // Stato locale per il form assenze
+  if (!state.absenceForm) state.absenceForm = {
+    mode: "single", reason: "Ferie", customReason: "",
+    fromDate: "", toDate: "", selectedWeeks: []
+  };
+  const form = state.absenceForm;
+
+  // Tutti i turni futuri del medico
+  const myUpcoming = [];
+  MONTHS.forEach(({year,month}) => {
+    const mKey = year+"-"+month;
+    Object.keys(state.schedules[mKey]).filter(k=>k>=today).sort().forEach(key => {
+      (state.schedules[mKey][key].slots||[]).forEach((s,si) => {
+        if (s.doctorId===state.loggedInId) myUpcoming.push({mKey,key,si,dayInfo:state.schedules[mKey][key],slot:s});
+      });
+    });
+  });
+
+  // Calcola anteprima slot che verranno liberati
+  function getPreview() {
+    let from = "", to = "";
+    if (form.mode==="single") { from=form.fromDate; to=form.fromDate; }
+    else if (form.mode==="range") { from=form.fromDate; to=form.toDate; }
+    else if (form.mode==="weeks" && form.selectedWeeks.length) {
+      const sorted = [...form.selectedWeeks].sort();
+      // Trova prima e ultima settimana
+      let minD = "", maxD = "";
+      MONTHS.forEach(({year,month}) => {
+        const mKey = year+"-"+month;
+        Object.keys(state.schedules[mKey]).filter(k=>k>=today).sort().forEach(k => {
+          const d = new Date(k);
+          const dow = (d.getDay()+6)%7;
+          const mon = new Date(d); mon.setDate(d.getDate()-dow);
+          const monKey = mon.getFullYear()+"-"+pad(mon.getMonth()+1)+"-"+pad(mon.getDate());
+          if (sorted.includes(monKey)) {
+            if (!minD || k < minD) minD = k;
+            if (!maxD || k > maxD) maxD = k;
+          }
+        });
+      });
+      from = minD; to = maxD;
+    }
+    if (!from || !to) return [];
+    return myUpcoming.filter(item => item.key >= from && item.key <= to);
+  }
+
+  const preview = getPreview();
+
+  // Settimane disponibili
+  const weeksMap = {};
+  myUpcoming.forEach(item => {
+    const d = new Date(item.key);
+    const dow = (d.getDay()+6)%7;
+    const mon = new Date(d); mon.setDate(d.getDate()-dow);
+    const monKey = mon.getFullYear()+"-"+pad(mon.getMonth()+1)+"-"+pad(mon.getDate());
+    if (!weeksMap[monKey]) weeksMap[monKey] = {monKey, days:[], label: mon.getDate()+" "+MS[mon.getMonth()]+" – "};
+    weeksMap[monKey].days.push(item.key);
+  });
+  const weeks = Object.values(weeksMap).sort((a,b)=>a.monKey<b.monKey?-1:1);
+
+  // Date min/max
+  const workDates = myUpcoming.map(i=>i.key).sort();
+  const minDate = workDates[0] || "";
+  const maxDate = workDates[workDates.length-1] || "";
+
+  const box = el("div", {style:{background:"#fff",borderRadius:"14px",boxShadow:"0 2px 16px rgba(0,0,0,0.06)",overflow:"hidden",marginBottom:"14px"}});
+  box.appendChild(el("div", {style:{background:"#1A2744",padding:"12px 16px"}},
+    el("div", {style:{fontWeight:"700",fontSize:"14px",color:"#fff"}}, "🏖️ Assenze — "+me.name),
+    el("div", {style:{fontSize:"11px",color:"rgba(255,255,255,0.6)",marginTop:"2px"}}, "Registra giorni o periodi di assenza")
+  ));
+
+  const content = el("div", {style:{padding:"14px 16px"}});
+
+  // 1. Tipo selezione
+  content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"7px"}}, "Tipo di selezione"));
+  const modeRow = el("div", {style:{display:"flex",gap:"6px",marginBottom:"14px"}});
+  [{v:"single",label:"Giorno"},{v:"range",label:"Periodo"},{v:"weeks",label:"Settimane"}].forEach(opt => {
+    modeRow.appendChild(el("button", {
+      style:{flex:"1",padding:"7px 4px",borderRadius:"8px",border:"2px solid "+(form.mode===opt.v?"#1A2744":"#E8EEF5"),background:form.mode===opt.v?"#1A2744":"#fff",color:form.mode===opt.v?"#fff":"#555",fontWeight:"600",fontSize:"11px",cursor:"pointer"},
+      onclick: () => { form.mode=opt.v; form.fromDate=""; form.toDate=""; form.selectedWeeks=[]; render(); }
+    }, opt.label));
+  });
+  content.appendChild(modeRow);
+
+  // 2. Motivo (tendina)
+  content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"6px"}}, "Motivo dell'assenza"));
+  const reasonRow = el("div", {style:{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"12px"}});
+  const REASONS = [{v:"Ferie",icon:"🌴"},{v:"Congresso",icon:"🎓"},{v:"Malattia",icon:"🤒"},{v:"Altro",icon:"✏️"}];
+  REASONS.forEach(r => {
+    reasonRow.appendChild(el("button", {
+      style:{padding:"6px 12px",borderRadius:"20px",border:"2px solid "+(form.reason===r.v?"#E74C3C":"#E8EEF5"),background:form.reason===r.v?"#FDECEA":"#fff",color:form.reason===r.v?"#C0392B":"#555",fontWeight:"600",fontSize:"11px",cursor:"pointer"},
+      onclick: () => { form.reason=r.v; render(); }
+    }, r.icon+" "+r.v));
+  });
+  content.appendChild(reasonRow);
+  if (form.reason==="Altro") {
+    const inp = el("input", {type:"text",placeholder:"Specifica il motivo...",style:{width:"100%",padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:"7px",fontSize:"12px",marginBottom:"12px",boxSizing:"border-box",outline:"none"}});
+    inp.value = form.customReason || "";
+    inp.addEventListener("input", e => { form.customReason = e.target.value; });
+    content.appendChild(inp);
+  }
+
+  // 3. Selezione periodo
+  if (form.mode==="single") {
+    content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"6px"}}, "Seleziona il giorno"));
+    const inp = el("input", {type:"date",min:minDate,max:maxDate,style:{width:"100%",padding:"9px 10px",border:"1.5px solid #E8EEF5",borderRadius:"8px",fontSize:"13px",outline:"none",marginBottom:"12px",boxSizing:"border-box"}});
+    inp.value = form.fromDate;
+    inp.addEventListener("change", e => { form.fromDate=e.target.value; render(); });
+    content.appendChild(inp);
+  }
+
+  if (form.mode==="range") {
+    content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"6px"}}, "Seleziona il periodo"));
+    const row = el("div", {style:{display:"flex",gap:"8px",alignItems:"flex-end",marginBottom:"12px"}});
+    const fromWrap = el("div", {style:{flex:"1"}});
+    fromWrap.appendChild(el("div", {style:{fontSize:"10px",color:"#888",marginBottom:"3px"}}, "Da"));
+    const fromInp = el("input", {type:"date",min:minDate,max:maxDate,style:{width:"100%",padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:"7px",fontSize:"12px",outline:"none",boxSizing:"border-box"}});
+    fromInp.value = form.fromDate;
+    fromInp.addEventListener("change", e => { form.fromDate=e.target.value; render(); });
+    fromWrap.appendChild(fromInp);
+    const toWrap = el("div", {style:{flex:"1"}});
+    toWrap.appendChild(el("div", {style:{fontSize:"10px",color:"#888",marginBottom:"3px"}}, "A"));
+    const toInp = el("input", {type:"date",min:form.fromDate||minDate,max:maxDate,style:{width:"100%",padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:"7px",fontSize:"12px",outline:"none",boxSizing:"border-box"}});
+    toInp.value = form.toDate;
+    toInp.addEventListener("change", e => { form.toDate=e.target.value; render(); });
+    toWrap.appendChild(toInp);
+    row.appendChild(fromWrap);
+    row.appendChild(el("div", {style:{fontSize:"16px",color:"#CBD5E1",paddingBottom:"4px"}}, "→"));
+    row.appendChild(toWrap);
+    content.appendChild(row);
+  }
+
+  if (form.mode==="weeks") {
+    content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"8px"}}, "Seleziona le settimane"));
+    weeks.forEach(wk => {
+      const isSel = form.selectedWeeks.includes(wk.monKey);
+      const myCount = wk.days.filter(d => myUpcoming.find(u=>u.key===d)).length;
+      const fri = wk.days[wk.days.length-1];
+      const friDate = new Date(fri);
+      const label = new Date(wk.monKey).getDate()+" – "+friDate.getDate()+" "+MS[friDate.getMonth()];
+      const btn = el("button", {
+        style:{display:"flex",alignItems:"center",gap:"10px",padding:"9px 12px",border:"2px solid "+(isSel?"#E74C3C":"#E8EEF5"),borderRadius:"9px",background:isSel?"#FDECEA":"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"5px"},
+        onclick: () => {
+          if (isSel) form.selectedWeeks = form.selectedWeeks.filter(w=>w!==wk.monKey);
+          else form.selectedWeeks.push(wk.monKey);
+          render();
+        }
+      },
+        el("div", {style:{width:"18px",height:"18px",borderRadius:"4px",border:"2px solid "+(isSel?"#E74C3C":"#CBD5E1"),background:isSel?"#E74C3C":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:"0"}},
+          isSel ? el("span", {style:{color:"#fff",fontSize:"11px",fontWeight:"700"}}, "✓") : null
+        ),
+        el("div", {style:{flex:"1",textAlign:"left"}},
+          el("div", {style:{fontWeight:"600",fontSize:"12px",color:"#1A2744"}}, "Sett. "+label),
+          el("div", {style:{fontSize:"10px",color:myCount>0?"#E67E22":"#aaa"}}, myCount>0?myCount+" tuoi turni":"Nessun tuo turno")
+        )
+      );
+      content.appendChild(btn);
+    });
+  }
+
+  // Anteprima
+  if (preview.length > 0) {
+    const prevBox = el("div", {style:{background:"#FFF8E1",border:"2px solid #FFD54F",borderRadius:"9px",padding:"10px 12px",marginBottom:"12px"}});
+    prevBox.appendChild(el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#E65100",marginBottom:"7px"}}, "⚠️ "+preview.length+" turni che verranno liberati"));
+    const list = el("div", {style:{display:"flex",flexWrap:"wrap",gap:"4px"}});
+    preview.forEach(item => {
+      const sl = SHIFTS[item.slot.shift];
+      list.appendChild(el("div", {style:{background:"#fff",border:"1px solid #FFD54F",borderRadius:"6px",padding:"3px 8px",fontSize:"10px"}},
+        el("span", {style:{fontWeight:"600",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day),
+        " · ",
+        el("span", {style:{color:"#888"}}, item.slot.period),
+        " · ",
+        el("span", {style:{fontWeight:"600",color:sl.text}}, sl.label)
+      ));
+    });
+    prevBox.appendChild(list);
+    content.appendChild(prevBox);
+  }
+
+  // Bottone conferma
+  const confirmBtn = el("button", {
+    style:{width:"100%",padding:"11px",background:preview.length>0?"#E74C3C":"#ccc",color:"#fff",border:"none",borderRadius:"9px",fontWeight:"700",fontSize:"13px",cursor:preview.length>0?"pointer":"not-allowed",marginBottom:"16px"},
+    onclick: () => {
+      if (preview.length===0) return;
+      const finalReason = form.reason==="Altro"?(form.customReason||"Altro"):form.reason;
+      preview.forEach(item => {
+        const s = state.schedules[item.mKey][item.key].slots[item.si];
+        s.refusedBy = state.loggedInId;
+        s.refuseReason = finalReason;
+        s.refused = true;
+        s.doctorId = null;
+      });
+      form.fromDate=""; form.toDate=""; form.selectedWeeks=[];
+      scheduleSave();
+      showToast("Assenza registrata — "+preview.length+" slot liberati.", "#E67E22");
+      render();
+    }
+  }, "🚫 Conferma assenza — "+preview.length+" slot verranno liberati");
+  content.appendChild(confirmBtn);
+
+  // Lista turni futuri
+  content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"8px"}}, "I miei turni futuri ("+myUpcoming.length+")"));
+  if (myUpcoming.length===0) {
+    content.appendChild(el("div", {style:{color:"#aaa",fontSize:"11px"}}, "Nessun turno futuro assegnato."));
+  } else {
+    myUpcoming.slice(0,30).forEach(item => {
+      const sl = SHIFTS[item.slot.shift];
+      content.appendChild(el("div", {style:{border:"1.5px solid "+me.color,background:sl.bg,borderRadius:"8px",padding:"7px 11px",display:"flex",alignItems:"center",gap:"10px",marginBottom:"5px"}},
+        el("div", {style:{flex:"1"}},
+          el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day+" "+MS[item.dayInfo.month]),
+          el("div", {style:{fontSize:"10px",color:sl.text,fontWeight:"600",marginTop:"2px"}}, (item.slot.period==="mattina"?"☀️":"🌙")+" "+item.slot.period+" · "+sl.label)
+        )
+      ));
+    });
+  }
+
+  box.appendChild(content);
+  main.appendChild(box);
+  return main;
+}
+
+function buildStats() {
+  const main = el("main", {style:{padding:"14px 16px",maxWidth:"1000px",margin:"0 auto"}});
+
+  // Cards
+  const cards = el("div", {style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:"10px",marginBottom:"16px"}});
+  DOCTORS.filter(d=>d.active).forEach(d => {
+    let total=0, absences=0;
+    MONTHS.forEach(({year,month}) => {
+      const md = state.schedules[year+"-"+month];
+      Object.values(md).forEach(day => {
+        (day.slots||[]).forEach(s => {
+          if (s.doctorId===d.id) total++;
+          if (s.refused && s.refusedBy===d.id) absences++;
+        });
+      });
+    });
+    const swaps = state.notifications.filter(n=>n.fromId===d.id).length;
+    cards.appendChild(el("div", {style:{background:"#fff",borderRadius:"12px",padding:"12px",boxShadow:"0 2px 12px rgba(0,0,0,0.06)"}},
+      el("div", {style:{display:"flex",alignItems:"center",gap:"7px",marginBottom:"9px"}},
+        el("div", {style:{width:"30px",height:"30px",borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:"700",fontSize:"11px"}}, d.initials),
+        el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#1A2744",lineHeight:"1.3"}}, d.name)
+      ),
+      el("div", {style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"5px"}},
+        el("div", {style:{background:"#F0F4FA",borderRadius:"6px",padding:"6px 7px",textAlign:"center"}}, el("div", {style:{fontWeight:"800",fontSize:"18px",color:"#1A2744"}}, String(total)), el("div", {style:{fontSize:"8px",color:"#888",marginTop:"1px"}}, "Turni")),
+        el("div", {style:{background:"#FFF8E1",borderRadius:"6px",padding:"6px 7px",textAlign:"center"}}, el("div", {style:{fontWeight:"800",fontSize:"18px",color:"#E67E22"}}, String(swaps)), el("div", {style:{fontSize:"8px",color:"#888",marginTop:"1px"}}, "Cambi")),
+        el("div", {style:{background:"#FEF3F2",borderRadius:"6px",padding:"6px 7px",textAlign:"center"}}, el("div", {style:{fontWeight:"800",fontSize:"18px",color:"#E74C3C"}}, String(absences)), el("div", {style:{fontSize:"8px",color:"#888",marginTop:"1px"}}, "Assenze"))
+      )
+    ));
+  });
+  main.appendChild(cards);
+
+  // Tabella
+  const tableWrap = el("div", {style:{background:"#fff",borderRadius:"12px",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",overflow:"hidden"}});
+  tableWrap.appendChild(el("div", {style:{background:"#1A2744",padding:"10px 14px"}}, el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#fff"}}, "📋 Riepilogo mensile")));
+  const tableScroll = el("div", {style:{overflowX:"auto"}});
+  const table = el("table", {style:{width:"100%",borderCollapse:"collapse",fontSize:"11px"}});
+  const thead = el("thead");
+  const hrow = el("tr", {style:{background:"#F8FAFC"}});
+  hrow.appendChild(el("th", {style:{padding:"8px 12px",textAlign:"left",fontWeight:"700",color:"#888",fontSize:"9px",textTransform:"uppercase"}}, "Medico"));
+  MONTHS.forEach(m => hrow.appendChild(el("th", {style:{padding:"8px 5px",textAlign:"center",fontWeight:"700",color:"#888",fontSize:"9px"}}, MS[m.month])));
+  hrow.appendChild(el("th", {style:{padding:"8px 8px",textAlign:"center",fontWeight:"700",color:"#1A2744",fontSize:"9px"}}, "TOT"));
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+  const tbody = el("tbody");
+  DOCTORS.filter(d=>d.active).forEach(d => {
+    let total = 0;
+    const row = el("tr", {style:{borderTop:"1px solid #F1F5F9"}});
+    row.appendChild(el("td", {style:{padding:"8px 12px"}},
+      el("div", {style:{display:"flex",alignItems:"center",gap:"6px"}},
+        el("div", {style:{width:"20px",height:"20px",borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:"700",fontSize:"8px"}}, d.initials),
+        el("span", {style:{fontWeight:"600",color:"#1A2744",fontSize:"11px"}}, d.name)
+      )
+    ));
+    MONTHS.forEach(({year,month}) => {
+      let count = 0;
+      const md = state.schedules[year+"-"+month];
+      Object.values(md).forEach(day => (day&&day.slots?day.slots:[]).forEach(s => { if(s.doctorId===d.id) count++; }));
+      total += count;
+      row.appendChild(el("td", {style:{padding:"8px 5px",textAlign:"center",color:count>0?"#1A2744":"#CBD5E1",fontWeight:count>0?"600":"400"}}, count>0?String(count):"—"));
+    });
+    row.appendChild(el("td", {style:{padding:"8px 8px",textAlign:"center",fontWeight:"800",color:"#1A2744",fontSize:"13px"}}, String(total)));
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  tableScroll.appendChild(table);
+  tableWrap.appendChild(tableScroll);
+  main.appendChild(tableWrap);
+  return main;
+}
+
+function getMonthDataForKey(key) {
+  const y = parseInt(key.slice(0,4));
+  const m = parseInt(key.slice(5,7)) - 1;
+  return state.schedules[y+"-"+m] || {};
+}
+
+function getAllSlotsOfDoctor(doctorId) {
+  const result = [];
+  MONTHS.forEach(({year,month}) => {
+    const mKey = year+"-"+month;
+    const md = state.schedules[mKey];
+    if (!md) return;
+    Object.keys(md).forEach(key => {
+      const day = md[key];
+      if (!day || !day.slots) return;
+      (day.slots||[]).forEach((s,si) => {
+        if (s.doctorId === doctorId) {
+          result.push({mKey, dk:key, si, dayInfo:day, slot:s});
+        }
+      });
+    });
+  });
+  return result;
+}
+
+function buildSwapModal(me, monthData) {
+  if (!state.swapModal) return null;
+  const {dk: fromDk, si: fromSi} = state.swapModal;
+
+  // Trova il monthData corretto per la data del turno
+  const fromMonthData = getMonthDataForKey(fromDk);
+  const fromDay = fromMonthData[fromDk];
+  if (!fromDay || !fromDay.slots || !fromDay.slots[fromSi]) {
+    state.swapModal = null;
+    return null;
+  }
+
+  const fromSlot = fromDay.slots[fromSi];
+  const fi = SHIFTS[fromSlot.shift];
+  const others = DOCTORS.filter(d => d.id!==state.loggedInId && d.active);
+
+  const step = state.swapModal.step || 1;
+  const toDoctor = state.swapModal.toDoctor || null;
+  const toSlot = state.swapModal.toSlot || null;
+
+  const overlay = el("div", {
+    style:{position:"fixed",inset:"0",background:"rgba(0,0,0,0.55)",zIndex:"300",display:"flex",alignItems:"center",justifyContent:"center",padding:"14px"},
+    onclick: () => { state.swapModal=null; render(); }
+  });
+  const box = el("div", {
+    style:{background:"#fff",borderRadius:"14px",padding:"20px",width:"400px",maxWidth:"100%",maxHeight:"90vh",overflowY:"auto"},
+    onclick: e => e.stopPropagation()
+  });
+
+  // Header
+  box.appendChild(el("div", {style:{fontWeight:"800",fontSize:"15px",color:"#1A2744",marginBottom:"4px"}}, "🔄 Richiesta cambio turno"));
+
+  // Turno da cedere
+  box.appendChild(el("div", {style:{background:"#F0F4FA",borderRadius:"9px",padding:"8px 12px",marginBottom:"12px"}},
+    el("div", {style:{fontSize:"9px",fontWeight:"700",color:"#888",textTransform:"uppercase",marginBottom:"2px"}}, "Il tuo turno da cedere"),
+    el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
+    el("div", {style:{fontSize:"11px",color:"#555"}}, (fromSlot.period==="mattina"?"☀️":"🌙")+" "+fromSlot.period+" · "+el("b",{},"").outerHTML.replace(/<\/?b>/g,"")+fi.label)
+  ));
+
+  // Step indicator
+  const stepRow = el("div", {style:{display:"flex",gap:"5px",marginBottom:"14px"}});
+  [1,2].forEach(s => stepRow.appendChild(el("div", {style:{flex:"1",height:"3px",borderRadius:"2px",background:step>=s?"#1A2744":"#E8EEF5"}})));
+  box.appendChild(stepRow);
+
+  if (step === 1) {
+    // STEP 1: scegli collega
+    box.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"10px"}}, "1. Scegli il collega"));
+    others.forEach(d => {
+      const slots = getAllSlotsOfDoctor(d.id);
+      box.appendChild(el("button", {
+        style:{display:"flex",alignItems:"center",gap:"10px",padding:"11px 13px",border:"2px solid #E8EEF5",borderRadius:"10px",background:"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"7px"},
+        onclick: () => { state.swapModal = {...state.swapModal, step:2, toDoctor:d, toSlot:null}; render(); }
+      },
+        el("div", {style:{width:"34px",height:"34px",borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:"700",fontSize:"12px",flexShrink:"0"}}, d.initials),
+        el("div", {style:{textAlign:"left"}},
+          el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744"}}, d.name),
+          el("div", {style:{fontSize:"10px",color:"#888"}}, slots.length+" turni disponibili per cambio")
+        ),
+        el("span", {style:{marginLeft:"auto",color:"#CBD5E1",fontSize:"16px"}}, "›")
+      ));
+    });
+
+  } else if (step === 2 && toDoctor) {
+    // STEP 2: scegli slot del collega
+    box.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px"}},
+      el("button", {
+        style:{background:"#F0F4FA",border:"none",borderRadius:"6px",padding:"4px 10px",cursor:"pointer",fontSize:"12px",color:"#1A2744",fontWeight:"600"},
+        onclick: () => { state.swapModal = {...state.swapModal, step:1, toDoctor:null, toSlot:null}; render(); }
+      }, "‹ Indietro"),
+      el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, "2. Turno di ",
+        el("span", {style:{color:toDoctor.color}}, toDoctor.name)
+      )
+    ));
+
+    const collegaSlots = getAllSlotsOfDoctor(toDoctor.id);
+    const slotList = el("div", {style:{maxHeight:"240px",overflowY:"auto",marginBottom:"10px"}});
+
+    // Opzione "nessun turno in cambio"
+    const isNoSwap = toSlot && toSlot.noSwap;
+    slotList.appendChild(el("button", {
+      style:{display:"flex",alignItems:"center",gap:"10px",padding:"10px 12px",border:"2px solid "+(isNoSwap?"#E67E22":"#E8EEF5"),borderRadius:"9px",background:isNoSwap?"#FFF8E1":"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"8px"},
+      onclick: () => { state.swapModal = {...state.swapModal, toSlot:{noSwap:true, dayInfo:null, slot:null, dk:null, si:null, mKey:null}}; render(); }
+    },
+      el("div", {style:{width:"34px",height:"34px",borderRadius:"50%",background:"#E67E22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"18px",flexShrink:"0"}}, "🤝"),
+      el("div", {style:{textAlign:"left"}},
+        el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744"}}, "Nessun turno in cambio"),
+        el("div", {style:{fontSize:"10px",color:"#888"}}, "Chiedi al collega di coprire il tuo slot senza ricevere nulla")
+      ),
+      isNoSwap ? el("span", {style:{color:"#E67E22",fontSize:"16px",marginLeft:"auto"}}, "✓") : null
+    ));
+
+    if (collegaSlots.length === 0) {
+      slotList.appendChild(el("div", {style:{color:"#aaa",textAlign:"center",padding:"10px",fontSize:"12px"}}, "Nessun turno disponibile per questo collega."));
+    } else {
+      collegaSlots.forEach(item => {
+        const slInfo = SHIFTS[item.slot.shift];
+        const isSel = toSlot && toSlot.dk===item.dk && toSlot.si===item.si;
+        slotList.appendChild(el("button", {
+          style:{display:"flex",alignItems:"center",gap:"8px",padding:"10px 12px",border:"2px solid "+(isSel?toDoctor.color:"#E8EEF5"),borderRadius:"9px",background:isSel?toDoctor.color+"18":"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"5px"},
+          onclick: () => { state.swapModal = {...state.swapModal, toSlot:item}; render(); }
+        },
+          el("div", {style:{flex:"1",textAlign:"left"}},
+            el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day+" "+MS[item.dayInfo.month]),
+            el("div", {style:{display:"flex",gap:"6px",alignItems:"center",marginTop:"3px"}},
+              el("span", {style:{fontSize:"11px",color:"#555"}}, item.slot.period==="mattina"?"☀️ Mattina":"🌙 Pomeriggio"),
+              el("span", {style:{fontSize:"10px",fontWeight:"700",color:slInfo.text,background:slInfo.bg,borderRadius:"4px",padding:"1px 6px"}}, slInfo.label)
+            )
+          ),
+          isSel ? el("span", {style:{color:toDoctor.color,fontSize:"16px"}}, "✓") : null
+        ));
+      });
+    }
+    box.appendChild(slotList);
+
+    // Riepilogo cambio proposto
+    if (toSlot) {
+      if (toSlot.noSwap) {
+        box.appendChild(el("div", {style:{background:"#FFF8E1",border:"2px solid #E67E22",borderRadius:"9px",padding:"10px 13px",marginBottom:"12px"}},
+          el("div", {style:{fontSize:"10px",fontWeight:"700",color:"#9A6600",marginBottom:"6px",textTransform:"uppercase"}}, "Proposta di copertura"),
+          el("div", {style:{display:"flex",alignItems:"center",gap:"10px"}},
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Turno da coprire"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
+              el("div", {style:{fontSize:"11px",color:fi.text}}, fromSlot.period+" · "+fi.label)
+            ),
+            el("div", {style:{fontSize:"20px"}}, "🤝"),
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Senza turno in cambio"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#E67E22"}}, toDoctor.name),
+              el("div", {style:{fontSize:"10px",color:"#aaa"}}, "copre il tuo slot")
+            )
+          )
+        ));
+      } else {
+        const ti = SHIFTS[toSlot.slot.shift];
+        box.appendChild(el("div", {style:{background:"#EFF6FF",border:"2px solid #3498DB",borderRadius:"9px",padding:"10px 13px",marginBottom:"12px"}},
+          el("div", {style:{fontSize:"10px",fontWeight:"700",color:"#1A5276",marginBottom:"8px",textTransform:"uppercase"}}, "Cambio proposto"),
+          el("div", {style:{display:"flex",alignItems:"center",gap:"8px"}},
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Tu cedi"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
+              el("div", {style:{fontSize:"11px",color:fi.text}}, fromSlot.period+" · "+fi.label)
+            ),
+            el("div", {style:{fontSize:"20px",color:"#3498DB"}}, "⇄"),
+            el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+              el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Ricevi"),
+              el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day),
+              el("div", {style:{fontSize:"11px",color:ti.text}}, toSlot.slot.period+" · "+ti.label)
+            )
+          )
+        ));
+      }
+    }
+  }
+
+  // Pulsanti
+  const btnRow = el("div", {style:{display:"flex",gap:"7px",marginTop:"4px"}});
+  btnRow.appendChild(el("button", {
+    style:{flex:"1",padding:"10px",border:"1.5px solid #E8EEF5",borderRadius:"8px",background:"#fff",cursor:"pointer",fontWeight:"600",fontSize:"12px"},
+    onclick: () => { state.swapModal=null; render(); }
+  }, "Annulla"));
+
+  if (step===2 && toSlot) {
+    btnRow.appendChild(el("button", {
+      style:{flex:"2",padding:"10px",background:"#1A2744",color:"#fff",border:"none",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"12px"},
+      onclick: () => {
+        const fromDoc = getDoc(fromSlot.doctorId);
+        const toDoc = getDoc(toDoctor.id);
+        const fromMKeyFinal = Object.keys(state.schedules).find(k=>state.schedules[k][fromDk])||"";
+        if (toSlot.noSwap) {
+          state.notifications.unshift({
+            id: Date.now(), type:"cover", read:false,
+            text: "🤝 "+fromDoc.name+" chiede a "+toDoc.name+" di coprire un turno",
+            detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" — senza turno in cambio",
+            fromId: fromSlot.doctorId, toId: toDoctor.id,
+            fromDk: fromDk, fromSi: fromSi, fromMKey: fromMKeyFinal,
+            noSwap: true
+          });
+        } else {
+          const ti = SHIFTS[toSlot.slot.shift];
+          state.notifications.unshift({
+            id: Date.now(), type:"swap", read:false,
+            text: "🔄 "+fromDoc.name+" propone cambio con "+toDoc.name,
+            detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" ⇄ "+toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day+" · "+toSlot.slot.period+" · "+ti.label,
+            fromId: fromSlot.doctorId, toId: toDoctor.id,
+            fromDk: fromDk, fromSi: fromSi, fromMKey: fromMKeyFinal,
+            toDk: toSlot.dk, toSi: toSlot.si, toMKey: toSlot.mKey
+          });
+        }
+        state.swapModal = null;
+        scheduleSave();
+        showToast("Proposta inviata! Il collega vedrà la notifica.");
+        render();
+      }
+    }, toSlot && toSlot.noSwap ? "🤝 Chiedi copertura" : "✉️ Invia proposta di cambio"));
+  }
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  return overlay;
+}
+
+
+function buildAbsenceModal(me, monthData) {
+  const {dk: key, si} = state.absenceModal;
+  const slot = monthData[key].slots[si];
+  const dayInfo = monthData[key];
+  const sl = SHIFTS[slot.shift];
+
+  const overlay = el("div", {style:{position:"fixed",inset:"0",background:"rgba(0,0,0,0.5)",zIndex:"300",display:"flex",alignItems:"center",justifyContent:"center"},onclick:()=>{state.absenceModal=null;render();}});
+  const box = el("div", {style:{background:"#fff",borderRadius:"14px",padding:"22px",width:"340px",maxWidth:"95vw"},onclick:e=>e.stopPropagation()});
+
+  box.appendChild(el("div", {style:{fontWeight:"800",fontSize:"15px",color:"#E74C3C",marginBottom:"4px"}}, "🚫 Segnala assenza"));
+  box.appendChild(el("div", {style:{background:"#FDECEA",borderRadius:"9px",padding:"8px 11px",marginBottom:"12px"}},
+    el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, dayInfo.dayName+" "+dayInfo.day),
+    el("div", {style:{fontSize:"10px",color:"#555",marginTop:"2px"}}, (slot.period==="mattina"?"☀️":"🌙")+" "+slot.period+" · "+sl.label)
+  ));
+
+  let selectedReason = "Ferie";
+  const reasons = ["Ferie","Congresso","Malattia","Altro"];
+  const reasonRow = el("div", {style:{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"12px"}});
+  const btnMap = {};
+  reasons.forEach(r => {
+    const icons = {Ferie:"🌴",Congresso:"🎓",Malattia:"🤒",Altro:"✏️"};
+    const rBtn = el("button", {
+      style:{padding:"5px 10px",borderRadius:"20px",border:"2px solid "+(r==="Ferie"?"#E74C3C":"#E8EEF5"),background:r==="Ferie"?"#FDECEA":"#fff",color:r==="Ferie"?"#C0392B":"#555",fontWeight:"600",fontSize:"11px",cursor:"pointer"},
+      onclick: () => {
+        selectedReason = r;
+        Object.entries(btnMap).forEach(([k,b]) => {
+          b.style.border = k===r?"2px solid #E74C3C":"2px solid #E8EEF5";
+          b.style.background = k===r?"#FDECEA":"#fff";
+          b.style.color = k===r?"#C0392B":"#555";
+        });
+      }
+    }, icons[r]+" "+r);
+    btnMap[r] = rBtn;
+    reasonRow.appendChild(rBtn);
+  });
+  box.appendChild(el("div", {style:{fontSize:"11px",fontWeight:"700",color:"#1A2744",marginBottom:"6px"}}, "Motivo"));
+  box.appendChild(reasonRow);
+
+  const btnRow = el("div", {style:{display:"flex",gap:"7px",marginTop:"12px"}});
+  btnRow.appendChild(el("button", {style:{flex:"1",padding:"9px",border:"1.5px solid #E8EEF5",borderRadius:"8px",background:"#fff",cursor:"pointer",fontWeight:"600",fontSize:"12px"},onclick:()=>{state.absenceModal=null;render();}}, "Annulla"));
+  btnRow.appendChild(el("button", {
+    style:{flex:"1",padding:"9px",background:"#E74C3C",color:"#fff",border:"none",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"12px"},
+    onclick: () => {
+      slot.refusedBy = state.loggedInId;
+      slot.refuseReason = selectedReason;
+      slot.refused = true;
+      slot.doctorId = null;
+      state.absenceModal = null;
+      scheduleSave();
+      showToast("Assenza registrata.", "#E67E22");
+      render();
+    }
+  }, "Conferma"));
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  return overlay;
+}
+
+function buildToast() {
+  return el("div", {style:{position:"fixed",bottom:"24px",left:"50%",transform:"translateX(-50%)",background:state.toast.color,color:"#fff",borderRadius:"12px",padding:"11px 22px",fontWeight:"700",fontSize:"13px",boxShadow:"0 4px 20px rgba(0,0,0,0.2)",zIndex:"500"}}, state.toast.msg);
+}
+
+// ── AZIONI ────────────────────────────────────────────────────────────────────
+function assignSelf(key, si) {
+  const mKey = Object.keys(state.schedules).find(k => state.schedules[k][key]);
+  if (mKey) {
+    state.schedules[mKey][key].slots[si].doctorId = state.loggedInId;
+    state.schedules[mKey][key].slots[si].refused = false;
+  }
+  scheduleSave();
+  showToast("Slot assegnato!");
+  render();
+}
+
+function approveSwap(notif) {
+  try {
+    const fromMKey = Object.keys(state.schedules).find(k => state.schedules[k][notif.fromDk]);
+    if (!fromMKey) { showToast("Errore: turno non trovato","#E74C3C"); return; }
+    const a = state.schedules[fromMKey][notif.fromDk].slots[notif.fromSi];
+    if (!a) { showToast("Errore: slot non trovato","#E74C3C"); return; }
+
+    if (notif.noSwap) {
+      // Copertura: il collega prende il turno del richiedente
+      a.doctorId = notif.toId;
+      notif.read = true; notif.approved = true;
+      scheduleSave();
+      showToast("✓ Copertura confermata! Il turno è stato assegnato.");
+    } else {
+      const toMKey = Object.keys(state.schedules).find(k => state.schedules[k][notif.toDk]);
+      if (!toMKey) { showToast("Errore: turno non trovato","#E74C3C"); return; }
+      const b = state.schedules[toMKey][notif.toDk].slots[notif.toSi];
+      if (!b) { showToast("Errore: slot non trovato","#E74C3C"); return; }
+      const tmp = a.doctorId; a.doctorId = b.doctorId; b.doctorId = tmp;
+      notif.read = true; notif.approved = true;
+      scheduleSave();
+      showToast("✓ Cambio effettuato! Il calendario è stato aggiornato.");
+    }
+    render();
+  } catch(e) {
+    showToast("Errore: "+e.message, "#E74C3C");
+  }
+}
+
+function countEmpty(monthData) {
+  let c = 0;
+  Object.values(monthData).forEach(d => { if(d && d.slots) (d.slots||[]).forEach(s => { if(!s.doctorId) c++; }); });
+  return c;
+}
+
+function showToast(msg, color="#27AE60") {
+  state.toast = {msg, color};
+  render();
+  setTimeout(() => { state.toast = null; render(); }, 3000);
+}
+
+// ── AVVIO ─────────────────────────────────────────────────────────────────────
+async function init() {
+  state.loaded = true;
+  render();
+  // Carica da Firebase in background
+  try {
+    const data = await loadAll();
+    if (data) {
+      if (data.schedules) {
+        MONTHS.forEach(({year,month}) => {
+          const mKey = year+"-"+month;
+          if (data.schedules[mKey]) {
+            Object.keys(state.schedules[mKey]).forEach(key => {
+              if (data.schedules[mKey][key]) {
+                state.schedules[mKey][key].slots = data.schedules[mKey][key].slots;
+              }
+            });
+          }
+        });
+      }
+      if (data.notifications) state.notifications = data.notifications;
+      render();
+    }
+  } catch(e) { console.log("Firebase non disponibile, uso dati locali"); }
+
+  // Polling ogni 15 secondi
+  setInterval(async () => {
+    try {
+      const data = await loadAll();
+      if (!data) return;
+      if (data.schedules) {
+        MONTHS.forEach(({year,month}) => {
+          const mKey = year+"-"+month;
+          if (data.schedules[mKey]) {
+            Object.keys(state.schedules[mKey]).forEach(key => {
+              if (data.schedules[mKey][key]) state.schedules[mKey][key].slots = data.schedules[mKey][key].slots;
+            });
+          }
+        });
+      }
+      if (data.notifications) state.notifications = data.notifications;
+      render();
+    } catch(e) {}
+  }, 15000);
+}
+
+init();
+</script>
+</body>
+</html>
