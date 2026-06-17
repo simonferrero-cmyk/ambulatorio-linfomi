@@ -718,12 +718,13 @@ function buildMyMonthSummary(me, monthData) {
 
 function buildAbsences(me) {
   const main = el("main", {style:{padding:"14px 16px",maxWidth:"700px",margin:"0 auto"}});
-  const box = el("div", {style:{background:"#fff",borderRadius:"14px",boxShadow:"0 2px 16px rgba(0,0,0,0.06)",overflow:"hidden"}});
-  box.appendChild(el("div", {style:{background:"#1A2744",padding:"12px 16px"}},
-    el("div", {style:{fontWeight:"700",fontSize:"14px",color:"#fff"}}, "🏖️ Assenze — "+me.name)
-  ));
 
-  const content = el("div", {style:{padding:"14px 16px"}});
+  // Stato locale per il form assenze
+  if (!state.absenceForm) state.absenceForm = {
+    mode: "single", reason: "Ferie", customReason: "",
+    fromDate: "", toDate: "", selectedWeeks: []
+  };
+  const form = state.absenceForm;
 
   // Tutti i turni futuri del medico
   const myUpcoming = [];
@@ -736,34 +737,201 @@ function buildAbsences(me) {
     });
   });
 
-  content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744",marginBottom:"10px"}}, "I miei turni futuri ("+myUpcoming.length+")"));
+  // Calcola anteprima slot che verranno liberati
+  function getPreview() {
+    let from = "", to = "";
+    if (form.mode==="single") { from=form.fromDate; to=form.fromDate; }
+    else if (form.mode==="range") { from=form.fromDate; to=form.toDate; }
+    else if (form.mode==="weeks" && form.selectedWeeks.length) {
+      const sorted = [...form.selectedWeeks].sort();
+      // Trova prima e ultima settimana
+      let minD = "", maxD = "";
+      MONTHS.forEach(({year,month}) => {
+        const mKey = year+"-"+month;
+        Object.keys(state.schedules[mKey]).filter(k=>k>=today).sort().forEach(k => {
+          const d = new Date(k);
+          const dow = (d.getDay()+6)%7;
+          const mon = new Date(d); mon.setDate(d.getDate()-dow);
+          const monKey = mon.getFullYear()+"-"+pad(mon.getMonth()+1)+"-"+pad(mon.getDate());
+          if (sorted.includes(monKey)) {
+            if (!minD || k < minD) minD = k;
+            if (!maxD || k > maxD) maxD = k;
+          }
+        });
+      });
+      from = minD; to = maxD;
+    }
+    if (!from || !to) return [];
+    return myUpcoming.filter(item => item.key >= from && item.key <= to);
+  }
 
-  if (myUpcoming.length===0) {
-    content.appendChild(el("div", {style:{color:"#aaa",fontSize:"12px"}}, "Nessun turno futuro assegnato."));
-  } else {
-    myUpcoming.slice(0,20).forEach(item => {
-      const sl = SHIFTS[item.slot.shift];
-      const row = el("div", {style:{border:"1.5px solid "+me.color,background:sl.bg,borderRadius:"9px",padding:"8px 12px",display:"flex",alignItems:"center",gap:"12px",marginBottom:"6px"}});
-      row.appendChild(el("div", {style:{flex:"1"}},
-        el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day+" "+MS[item.dayInfo.month]+" "+item.dayInfo.year),
-        el("div", {style:{fontSize:"11px",color:"#555",marginTop:"2px"}}, (item.slot.period==="mattina"?"☀️":"🌙")+" "+item.slot.period+" · "),
-        el("span", {style:{fontSize:"11px",fontWeight:"700",color:sl.text}}, sl.label)
-      ));
-      row.appendChild(el("button", {
-        style:{background:"#E74C3C",color:"#fff",border:"none",borderRadius:"7px",padding:"6px 12px",cursor:"pointer",fontSize:"11px",fontWeight:"700",flexShrink:"0"},
+  const preview = getPreview();
+
+  // Settimane disponibili
+  const weeksMap = {};
+  myUpcoming.forEach(item => {
+    const d = new Date(item.key);
+    const dow = (d.getDay()+6)%7;
+    const mon = new Date(d); mon.setDate(d.getDate()-dow);
+    const monKey = mon.getFullYear()+"-"+pad(mon.getMonth()+1)+"-"+pad(mon.getDate());
+    if (!weeksMap[monKey]) weeksMap[monKey] = {monKey, days:[], label: mon.getDate()+" "+MS[mon.getMonth()]+" – "};
+    weeksMap[monKey].days.push(item.key);
+  });
+  const weeks = Object.values(weeksMap).sort((a,b)=>a.monKey<b.monKey?-1:1);
+
+  // Date min/max
+  const workDates = myUpcoming.map(i=>i.key).sort();
+  const minDate = workDates[0] || "";
+  const maxDate = workDates[workDates.length-1] || "";
+
+  const box = el("div", {style:{background:"#fff",borderRadius:"14px",boxShadow:"0 2px 16px rgba(0,0,0,0.06)",overflow:"hidden",marginBottom:"14px"}});
+  box.appendChild(el("div", {style:{background:"#1A2744",padding:"12px 16px"}},
+    el("div", {style:{fontWeight:"700",fontSize:"14px",color:"#fff"}}, "🏖️ Assenze — "+me.name),
+    el("div", {style:{fontSize:"11px",color:"rgba(255,255,255,0.6)",marginTop:"2px"}}, "Registra giorni o periodi di assenza")
+  ));
+
+  const content = el("div", {style:{padding:"14px 16px"}});
+
+  // 1. Tipo selezione
+  content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"7px"}}, "Tipo di selezione"));
+  const modeRow = el("div", {style:{display:"flex",gap:"6px",marginBottom:"14px"}});
+  [{v:"single",label:"Giorno"},{v:"range",label:"Periodo"},{v:"weeks",label:"Settimane"}].forEach(opt => {
+    modeRow.appendChild(el("button", {
+      style:{flex:"1",padding:"7px 4px",borderRadius:"8px",border:"2px solid "+(form.mode===opt.v?"#1A2744":"#E8EEF5"),background:form.mode===opt.v?"#1A2744":"#fff",color:form.mode===opt.v?"#fff":"#555",fontWeight:"600",fontSize:"11px",cursor:"pointer"},
+      onclick: () => { form.mode=opt.v; form.fromDate=""; form.toDate=""; form.selectedWeeks=[]; render(); }
+    }, opt.label));
+  });
+  content.appendChild(modeRow);
+
+  // 2. Motivo (tendina)
+  content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"6px"}}, "Motivo dell'assenza"));
+  const reasonRow = el("div", {style:{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"12px"}});
+  const REASONS = [{v:"Ferie",icon:"🌴"},{v:"Congresso",icon:"🎓"},{v:"Malattia",icon:"🤒"},{v:"Altro",icon:"✏️"}];
+  REASONS.forEach(r => {
+    reasonRow.appendChild(el("button", {
+      style:{padding:"6px 12px",borderRadius:"20px",border:"2px solid "+(form.reason===r.v?"#E74C3C":"#E8EEF5"),background:form.reason===r.v?"#FDECEA":"#fff",color:form.reason===r.v?"#C0392B":"#555",fontWeight:"600",fontSize:"11px",cursor:"pointer"},
+      onclick: () => { form.reason=r.v; render(); }
+    }, r.icon+" "+r.v));
+  });
+  content.appendChild(reasonRow);
+  if (form.reason==="Altro") {
+    const inp = el("input", {type:"text",placeholder:"Specifica il motivo...",style:{width:"100%",padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:"7px",fontSize:"12px",marginBottom:"12px",boxSizing:"border-box",outline:"none"}});
+    inp.value = form.customReason || "";
+    inp.addEventListener("input", e => { form.customReason = e.target.value; });
+    content.appendChild(inp);
+  }
+
+  // 3. Selezione periodo
+  if (form.mode==="single") {
+    content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"6px"}}, "Seleziona il giorno"));
+    const inp = el("input", {type:"date",min:minDate,max:maxDate,style:{width:"100%",padding:"9px 10px",border:"1.5px solid #E8EEF5",borderRadius:"8px",fontSize:"13px",outline:"none",marginBottom:"12px",boxSizing:"border-box"}});
+    inp.value = form.fromDate;
+    inp.addEventListener("change", e => { form.fromDate=e.target.value; render(); });
+    content.appendChild(inp);
+  }
+
+  if (form.mode==="range") {
+    content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"6px"}}, "Seleziona il periodo"));
+    const row = el("div", {style:{display:"flex",gap:"8px",alignItems:"flex-end",marginBottom:"12px"}});
+    const fromWrap = el("div", {style:{flex:"1"}});
+    fromWrap.appendChild(el("div", {style:{fontSize:"10px",color:"#888",marginBottom:"3px"}}, "Da"));
+    const fromInp = el("input", {type:"date",min:minDate,max:maxDate,style:{width:"100%",padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:"7px",fontSize:"12px",outline:"none",boxSizing:"border-box"}});
+    fromInp.value = form.fromDate;
+    fromInp.addEventListener("change", e => { form.fromDate=e.target.value; render(); });
+    fromWrap.appendChild(fromInp);
+    const toWrap = el("div", {style:{flex:"1"}});
+    toWrap.appendChild(el("div", {style:{fontSize:"10px",color:"#888",marginBottom:"3px"}}, "A"));
+    const toInp = el("input", {type:"date",min:form.fromDate||minDate,max:maxDate,style:{width:"100%",padding:"8px 10px",border:"1.5px solid #E8EEF5",borderRadius:"7px",fontSize:"12px",outline:"none",boxSizing:"border-box"}});
+    toInp.value = form.toDate;
+    toInp.addEventListener("change", e => { form.toDate=e.target.value; render(); });
+    toWrap.appendChild(toInp);
+    row.appendChild(fromWrap);
+    row.appendChild(el("div", {style:{fontSize:"16px",color:"#CBD5E1",paddingBottom:"4px"}}, "→"));
+    row.appendChild(toWrap);
+    content.appendChild(row);
+  }
+
+  if (form.mode==="weeks") {
+    content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"8px"}}, "Seleziona le settimane"));
+    weeks.forEach(wk => {
+      const isSel = form.selectedWeeks.includes(wk.monKey);
+      const myCount = wk.days.filter(d => myUpcoming.find(u=>u.key===d)).length;
+      const fri = wk.days[wk.days.length-1];
+      const friDate = new Date(fri);
+      const label = new Date(wk.monKey).getDate()+" – "+friDate.getDate()+" "+MS[friDate.getMonth()];
+      const btn = el("button", {
+        style:{display:"flex",alignItems:"center",gap:"10px",padding:"9px 12px",border:"2px solid "+(isSel?"#E74C3C":"#E8EEF5"),borderRadius:"9px",background:isSel?"#FDECEA":"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"5px"},
         onclick: () => {
-          const reason = prompt("Motivo assenza (Ferie / Congresso / Malattia / Altro):") || "Non specificato";
-          const s = state.schedules[item.mKey][item.key].slots[item.si];
-          s.refusedBy = state.loggedInId;
-          s.refuseReason = reason;
-          s.refused = true;
-          s.doctorId = null;
-          scheduleSave();
-          showToast("Assenza registrata.", "#E67E22");
+          if (isSel) form.selectedWeeks = form.selectedWeeks.filter(w=>w!==wk.monKey);
+          else form.selectedWeeks.push(wk.monKey);
           render();
         }
-      }, "🚫 Assenza"));
-      content.appendChild(row);
+      },
+        el("div", {style:{width:"18px",height:"18px",borderRadius:"4px",border:"2px solid "+(isSel?"#E74C3C":"#CBD5E1"),background:isSel?"#E74C3C":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:"0"}},
+          isSel ? el("span", {style:{color:"#fff",fontSize:"11px",fontWeight:"700"}}, "✓") : null
+        ),
+        el("div", {style:{flex:"1",textAlign:"left"}},
+          el("div", {style:{fontWeight:"600",fontSize:"12px",color:"#1A2744"}}, "Sett. "+label),
+          el("div", {style:{fontSize:"10px",color:myCount>0?"#E67E22":"#aaa"}}, myCount>0?myCount+" tuoi turni":"Nessun tuo turno")
+        )
+      );
+      content.appendChild(btn);
+    });
+  }
+
+  // Anteprima
+  if (preview.length > 0) {
+    const prevBox = el("div", {style:{background:"#FFF8E1",border:"2px solid #FFD54F",borderRadius:"9px",padding:"10px 12px",marginBottom:"12px"}});
+    prevBox.appendChild(el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#E65100",marginBottom:"7px"}}, "⚠️ "+preview.length+" turni che verranno liberati"));
+    const list = el("div", {style:{display:"flex",flexWrap:"wrap",gap:"4px"}});
+    preview.forEach(item => {
+      const sl = SHIFTS[item.slot.shift];
+      list.appendChild(el("div", {style:{background:"#fff",border:"1px solid #FFD54F",borderRadius:"6px",padding:"3px 8px",fontSize:"10px"}},
+        el("span", {style:{fontWeight:"600",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day),
+        " · ",
+        el("span", {style:{color:"#888"}}, item.slot.period),
+        " · ",
+        el("span", {style:{fontWeight:"600",color:sl.text}}, sl.label)
+      ));
+    });
+    prevBox.appendChild(list);
+    content.appendChild(prevBox);
+  }
+
+  // Bottone conferma
+  const confirmBtn = el("button", {
+    style:{width:"100%",padding:"11px",background:preview.length>0?"#E74C3C":"#ccc",color:"#fff",border:"none",borderRadius:"9px",fontWeight:"700",fontSize:"13px",cursor:preview.length>0?"pointer":"not-allowed",marginBottom:"16px"},
+    onclick: () => {
+      if (preview.length===0) return;
+      const finalReason = form.reason==="Altro"?(form.customReason||"Altro"):form.reason;
+      preview.forEach(item => {
+        const s = state.schedules[item.mKey][item.key].slots[item.si];
+        s.refusedBy = state.loggedInId;
+        s.refuseReason = finalReason;
+        s.refused = true;
+        s.doctorId = null;
+      });
+      form.fromDate=""; form.toDate=""; form.selectedWeeks=[];
+      scheduleSave();
+      showToast("Assenza registrata — "+preview.length+" slot liberati.", "#E67E22");
+      render();
+    }
+  }, "🚫 Conferma assenza — "+preview.length+" slot verranno liberati");
+  content.appendChild(confirmBtn);
+
+  // Lista turni futuri
+  content.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"8px"}}, "I miei turni futuri ("+myUpcoming.length+")"));
+  if (myUpcoming.length===0) {
+    content.appendChild(el("div", {style:{color:"#aaa",fontSize:"11px"}}, "Nessun turno futuro assegnato."));
+  } else {
+    myUpcoming.slice(0,30).forEach(item => {
+      const sl = SHIFTS[item.slot.shift];
+      content.appendChild(el("div", {style:{border:"1.5px solid "+me.color,background:sl.bg,borderRadius:"8px",padding:"7px 11px",display:"flex",alignItems:"center",gap:"10px",marginBottom:"5px"}},
+        el("div", {style:{flex:"1"}},
+          el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day+" "+MS[item.dayInfo.month]),
+          el("div", {style:{fontSize:"10px",color:sl.text,fontWeight:"600",marginTop:"2px"}}, (item.slot.period==="mattina"?"☀️":"🌙")+" "+item.slot.period+" · "+sl.label)
+        )
+      ));
     });
   }
 
@@ -842,8 +1010,17 @@ function buildStats() {
   return main;
 }
 
+function getMonthDataForKey(key) {
+  // Trova il monthData giusto per qualsiasi data
+  const mKey = key.slice(0,4)+"-"+parseInt(key.slice(5,7)-1);
+  return state.schedules[mKey] || {};
+}
+
 function buildSwapModal(me, monthData) {
   const {dk: fromDk, si: fromSi} = state.swapModal;
+  // Usa il monthData corretto per la data del turno da cedere
+  const correctMonthData = getMonthDataForKey(fromDk);
+  if (correctMonthData[fromDk]) monthData = correctMonthData;
   const fromSlot = monthData[fromDk].slots[fromSi];
   const fromDayInf = monthData[fromDk];
   const fi = SHIFTS[fromSlot.shift];
