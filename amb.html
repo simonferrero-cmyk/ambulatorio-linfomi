@@ -1204,16 +1204,27 @@ function buildSwapModal(me, monthData) {
       onclick: () => {
         const fromDoc = getDoc(fromSlot.doctorId);
         const toDoc = getDoc(toDoctor.id);
-        const ti = SHIFTS[toSlot.slot.shift];
-        // Aggiungi notifica per il collega
-        state.notifications.unshift({
-          id: Date.now(), type:"swap", read:false,
-          text: "🔄 "+fromDoc.name+" propone cambio con "+toDoc.name,
-          detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" ⇄ "+toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day+" · "+toSlot.slot.period+" · "+ti.label,
-          fromId: fromSlot.doctorId, toId: toDoctor.id,
-          fromDk: fromDk, fromSi: fromSi, fromMKey: Object.keys(state.schedules).find(k=>state.schedules[k][fromDk])||"",
-          toDk: toSlot.dk, toSi: toSlot.si, toMKey: toSlot.mKey
-        });
+        const fromMKeyFinal = Object.keys(state.schedules).find(k=>state.schedules[k][fromDk])||"";
+        if (toSlot.noSwap) {
+          state.notifications.unshift({
+            id: Date.now(), type:"cover", read:false,
+            text: "🤝 "+fromDoc.name+" chiede a "+toDoc.name+" di coprire un turno",
+            detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" — senza turno in cambio",
+            fromId: fromSlot.doctorId, toId: toDoctor.id,
+            fromDk: fromDk, fromSi: fromSi, fromMKey: fromMKeyFinal,
+            noSwap: true
+          });
+        } else {
+          const ti = SHIFTS[toSlot.slot.shift];
+          state.notifications.unshift({
+            id: Date.now(), type:"swap", read:false,
+            text: "🔄 "+fromDoc.name+" propone cambio con "+toDoc.name,
+            detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" ⇄ "+toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day+" · "+toSlot.slot.period+" · "+ti.label,
+            fromId: fromSlot.doctorId, toId: toDoctor.id,
+            fromDk: fromDk, fromSi: fromSi, fromMKey: fromMKeyFinal,
+            toDk: toSlot.dk, toSi: toSlot.si, toMKey: toSlot.mKey
+          });
+        }
         state.swapModal = null;
         scheduleSave();
         showToast("Proposta inviata! Il collega vedrà la notifica.");
