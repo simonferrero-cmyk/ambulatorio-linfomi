@@ -1011,146 +1011,187 @@ function buildStats() {
 }
 
 function getMonthDataForKey(key) {
-  // Trova il monthData giusto per qualsiasi data
-  const mKey = key.slice(0,4)+"-"+parseInt(key.slice(5,7)-1);
-  return state.schedules[mKey] || {};
+  const y = parseInt(key.slice(0,4));
+  const m = parseInt(key.slice(5,7)) - 1;
+  return state.schedules[y+"-"+m] || {};
+}
+
+function getAllSlotsOfDoctor(doctorId) {
+  const result = [];
+  MONTHS.forEach(({year,month}) => {
+    const mKey = year+"-"+month;
+    const md = state.schedules[mKey];
+    if (!md) return;
+    Object.keys(md).forEach(key => {
+      const day = md[key];
+      if (!day || !day.slots) return;
+      day.slots.forEach((s,si) => {
+        if (s.doctorId === doctorId) {
+          result.push({mKey, dk:key, si, dayInfo:day, slot:s});
+        }
+      });
+    });
+  });
+  return result;
 }
 
 function buildSwapModal(me, monthData) {
+  if (!state.swapModal) return null;
   const {dk: fromDk, si: fromSi} = state.swapModal;
-  // Usa il monthData corretto per la data del turno da cedere
-  const correctMonthData = getMonthDataForKey(fromDk);
-  if (correctMonthData[fromDk]) monthData = correctMonthData;
-  const fromSlot = monthData[fromDk].slots[fromSi];
-  const fromDayInf = monthData[fromDk];
+
+  // Trova il monthData corretto per la data del turno
+  const fromMonthData = getMonthDataForKey(fromDk);
+  const fromDay = fromMonthData[fromDk];
+  if (!fromDay || !fromDay.slots || !fromDay.slots[fromSi]) {
+    state.swapModal = null;
+    return null;
+  }
+
+  const fromSlot = fromDay.slots[fromSi];
   const fi = SHIFTS[fromSlot.shift];
-  const others = DOCTORS.filter(d=>d.id!==state.loggedInId&&d.active);
+  const others = DOCTORS.filter(d => d.id!==state.loggedInId && d.active);
 
-  let step = state.swapModal.step || 1;
-  let toDoctor = state.swapModal.toDoctor || null;
-  let toSlot = state.swapModal.toSlot || null;
+  const step = state.swapModal.step || 1;
+  const toDoctor = state.swapModal.toDoctor || null;
+  const toSlot = state.swapModal.toSlot || null;
 
-  const overlay = el("div", {style:{position:"fixed",inset:"0",background:"rgba(0,0,0,0.5)",zIndex:"300",display:"flex",alignItems:"center",justifyContent:"center",padding:"14px"},onclick:()=>{state.swapModal=null;render();}});
-  const box = el("div", {style:{background:"#fff",borderRadius:"14px",padding:"20px",width:"400px",maxWidth:"100%",maxHeight:"90vh",overflowY:"auto"},onclick:e=>e.stopPropagation()});
+  const overlay = el("div", {
+    style:{position:"fixed",inset:"0",background:"rgba(0,0,0,0.55)",zIndex:"300",display:"flex",alignItems:"center",justifyContent:"center",padding:"14px"},
+    onclick: () => { state.swapModal=null; render(); }
+  });
+  const box = el("div", {
+    style:{background:"#fff",borderRadius:"14px",padding:"20px",width:"400px",maxWidth:"100%",maxHeight:"90vh",overflowY:"auto"},
+    onclick: e => e.stopPropagation()
+  });
 
-  box.appendChild(el("div", {style:{fontWeight:"800",fontSize:"15px",color:"#1A2744",marginBottom:"4px"}}, "🔄 Cambio turno"));
+  // Header
+  box.appendChild(el("div", {style:{fontWeight:"800",fontSize:"15px",color:"#1A2744",marginBottom:"4px"}}, "🔄 Richiesta cambio turno"));
+
+  // Turno da cedere
   box.appendChild(el("div", {style:{background:"#F0F4FA",borderRadius:"9px",padding:"8px 12px",marginBottom:"12px"}},
-    el("div", {style:{fontSize:"9px",fontWeight:"700",color:"#888",textTransform:"uppercase",marginBottom:"2px"}}, "Turno da cedere"),
-    el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, fromDayInf.dayName+" "+fromDayInf.day),
-    el("div", {style:{fontSize:"11px",color:"#555"}}, (fromSlot.period==="mattina"?"☀️":"🌙")+" "+fromSlot.period+" · "+fi.label)
+    el("div", {style:{fontSize:"9px",fontWeight:"700",color:"#888",textTransform:"uppercase",marginBottom:"2px"}}, "Il tuo turno da cedere"),
+    el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
+    el("div", {style:{fontSize:"11px",color:"#555"}}, (fromSlot.period==="mattina"?"☀️":"🌙")+" "+fromSlot.period+" · "+el("b",{},"").outerHTML.replace(/<\/?b>/g,"")+fi.label)
   ));
 
   // Step indicator
-  const steps = el("div", {style:{display:"flex",gap:"5px",marginBottom:"12px"}});
-  [1,2].forEach(s => steps.appendChild(el("div", {style:{flex:"1",height:"3px",borderRadius:"2px",background:step>=s?"#1A2744":"#E8EEF5"}})));
-  box.appendChild(steps);
+  const stepRow = el("div", {style:{display:"flex",gap:"5px",marginBottom:"14px"}});
+  [1,2].forEach(s => stepRow.appendChild(el("div", {style:{flex:"1",height:"3px",borderRadius:"2px",background:step>=s?"#1A2744":"#E8EEF5"}})));
+  box.appendChild(stepRow);
 
-  if (step===1) {
-    box.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"8px"}}, "1. Scegli il collega"));
+  if (step === 1) {
+    // STEP 1: scegli collega
+    box.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"10px"}}, "1. Scegli il collega"));
     others.forEach(d => {
-      // Conta turni disponibili
-      let count = 0;
-      MONTHS.forEach(({year,month}) => {
-        const md = state.schedules[year+"-"+month];
-        Object.values(md).forEach(day => day.slots.forEach(s => { if(s.doctorId===d.id) count++; }));
-      });
+      const slots = getAllSlotsOfDoctor(d.id);
       box.appendChild(el("button", {
-        style:{display:"flex",alignItems:"center",gap:"9px",padding:"10px 12px",border:"2px solid #E8EEF5",borderRadius:"9px",background:"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"6px"},
-        onclick: () => { state.swapModal = {...state.swapModal, step:2, toDoctor:d}; render(); }
+        style:{display:"flex",alignItems:"center",gap:"10px",padding:"11px 13px",border:"2px solid #E8EEF5",borderRadius:"10px",background:"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"7px"},
+        onclick: () => { state.swapModal = {...state.swapModal, step:2, toDoctor:d, toSlot:null}; render(); }
       },
-        el("div", {style:{width:"32px",height:"32px",borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:"700",fontSize:"11px",flexShrink:"0"}}, d.initials),
-        el("div", {},
-          el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, d.name),
-          el("div", {style:{fontSize:"10px",color:"#888"}}, count+" turni disponibili")
+        el("div", {style:{width:"34px",height:"34px",borderRadius:"50%",background:d.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:"700",fontSize:"12px",flexShrink:"0"}}, d.initials),
+        el("div", {style:{textAlign:"left"}},
+          el("div", {style:{fontWeight:"700",fontSize:"13px",color:"#1A2744"}}, d.name),
+          el("div", {style:{fontSize:"10px",color:"#888"}}, slots.length+" turni disponibili per cambio")
         ),
-        el("span", {style:{marginLeft:"auto",color:"#CBD5E1",fontSize:"14px"}}, "›")
+        el("span", {style:{marginLeft:"auto",color:"#CBD5E1",fontSize:"16px"}}, "›")
       ));
     });
-  } else if (step===2 && toDoctor) {
-    const backBtn = el("button", {style:{background:"#F0F4FA",border:"none",borderRadius:"5px",padding:"3px 8px",cursor:"pointer",fontSize:"11px",color:"#1A2744",fontWeight:"600",marginBottom:"10px"},onclick:()=>{state.swapModal={...state.swapModal,step:1,toDoctor:null,toSlot:null};render();}}, "‹ Indietro");
-    box.appendChild(backBtn);
-    box.appendChild(el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744",marginBottom:"8px"}}, "2. Turno di "+toDoctor.name));
 
-    // Trova tutti i slot del collega
-    const collegaSlots = [];
-    MONTHS.forEach(({year,month}) => {
-      const mKey = year+"-"+month;
-      Object.keys(state.schedules[mKey]).forEach(key => {
-        (state.schedules[mKey][key].slots||[]).forEach((s,si) => {
-          if (s.doctorId===toDoctor.id) collegaSlots.push({mKey,dk:key,si,dayInfo:state.schedules[mKey][key],slot:s});
-        });
+  } else if (step === 2 && toDoctor) {
+    // STEP 2: scegli slot del collega
+    box.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px"}},
+      el("button", {
+        style:{background:"#F0F4FA",border:"none",borderRadius:"6px",padding:"4px 10px",cursor:"pointer",fontSize:"12px",color:"#1A2744",fontWeight:"600"},
+        onclick: () => { state.swapModal = {...state.swapModal, step:1, toDoctor:null, toSlot:null}; render(); }
+      }, "‹ Indietro"),
+      el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, "2. Turno di ",
+        el("span", {style:{color:toDoctor.color}}, toDoctor.name)
+      )
+    ));
+
+    const collegaSlots = getAllSlotsOfDoctor(toDoctor.id);
+    const slotList = el("div", {style:{maxHeight:"240px",overflowY:"auto",marginBottom:"10px"}});
+
+    if (collegaSlots.length === 0) {
+      slotList.appendChild(el("div", {style:{color:"#aaa",textAlign:"center",padding:"20px",fontSize:"12px"}}, "Nessun turno disponibile per questo collega."));
+    } else {
+      collegaSlots.forEach(item => {
+        const slInfo = SHIFTS[item.slot.shift];
+        const isSel = toSlot && toSlot.dk===item.dk && toSlot.si===item.si;
+        slotList.appendChild(el("button", {
+          style:{display:"flex",alignItems:"center",gap:"8px",padding:"10px 12px",border:"2px solid "+(isSel?toDoctor.color:"#E8EEF5"),borderRadius:"9px",background:isSel?toDoctor.color+"18":"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"5px"},
+          onclick: () => { state.swapModal = {...state.swapModal, toSlot:item}; render(); }
+        },
+          el("div", {style:{flex:"1",textAlign:"left"}},
+            el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day+" "+MS[item.dayInfo.month]),
+            el("div", {style:{display:"flex",gap:"6px",alignItems:"center",marginTop:"3px"}},
+              el("span", {style:{fontSize:"11px",color:"#555"}}, item.slot.period==="mattina"?"☀️ Mattina":"🌙 Pomeriggio"),
+              el("span", {style:{fontSize:"10px",fontWeight:"700",color:slInfo.text,background:slInfo.bg,borderRadius:"4px",padding:"1px 6px"}}, slInfo.label)
+            )
+          ),
+          isSel ? el("span", {style:{color:toDoctor.color,fontSize:"16px"}}, "✓") : null
+        ));
       });
-    });
-
-    const slotList = el("div", {style:{maxHeight:"220px",overflowY:"auto",marginBottom:"10px"}});
-    collegaSlots.forEach(item => {
-      const slInfo = SHIFTS[item.slot.shift];
-      const isSel = toSlot && toSlot.dk===item.dk && toSlot.si===item.si;
-      slotList.appendChild(el("button", {
-        style:{display:"flex",alignItems:"center",gap:"8px",padding:"9px 11px",border:"2px solid "+(isSel?toDoctor.color:"#E8EEF5"),borderRadius:"8px",background:isSel?toDoctor.color+"18":"#FAFAFA",cursor:"pointer",width:"100%",marginBottom:"5px"},
-        onclick: () => { state.swapModal={...state.swapModal,toSlot:item}; render(); }
-      },
-        el("div", {style:{flex:"1"}},
-          el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#1A2744"}}, item.dayInfo.dayName+" "+item.dayInfo.day+" "+MS[item.dayInfo.month]),
-          el("div", {style:{display:"flex",gap:"5px",marginTop:"2px",alignItems:"center"}},
-            el("span", {style:{fontSize:"10px",color:"#555"}}, (item.slot.period==="mattina"?"☀️":"🌙")+" "+item.slot.period),
-            el("span", {style:{fontSize:"9px",fontWeight:"700",color:slInfo.text,background:slInfo.bg,borderRadius:"3px",padding:"1px 5px"}}, slInfo.label)
-          )
-        ),
-        isSel ? el("span", {style:{color:toDoctor.color,fontSize:"14px"}}, "✓") : null
-      ));
-    });
+    }
     box.appendChild(slotList);
 
+    // Riepilogo cambio proposto
     if (toSlot) {
       const ti = SHIFTS[toSlot.slot.shift];
-      box.appendChild(el("div", {style:{background:"#EFF6FF",border:"2px solid #3498DB",borderRadius:"8px",padding:"8px 11px",marginBottom:"10px"}},
-        el("div", {style:{fontSize:"9px",fontWeight:"700",color:"#1A5276",marginBottom:"5px",textTransform:"uppercase"}}, "Cambio proposto"),
-        el("div", {style:{display:"flex",alignItems:"center",gap:"6px"}},
-          el("div", {style:{background:"#fff",borderRadius:"6px",padding:"5px 8px",flex:"1"}},
-            el("div", {style:{fontSize:"9px",color:"#888"}}, "Tu cedi"),
-            el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#1A2744"}}, fromDayInf.dayName+" "+fromDayInf.day),
-            el("div", {style:{fontSize:"10px",color:fi.text}}, fromSlot.period+"·"+fi.label)
+      box.appendChild(el("div", {style:{background:"#EFF6FF",border:"2px solid #3498DB",borderRadius:"9px",padding:"10px 13px",marginBottom:"12px"}},
+        el("div", {style:{fontSize:"10px",fontWeight:"700",color:"#1A5276",marginBottom:"8px",textTransform:"uppercase"}}, "Cambio proposto"),
+        el("div", {style:{display:"flex",alignItems:"center",gap:"8px"}},
+          el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+            el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Tu cedi"),
+            el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, fromDay.dayName+" "+fromDay.day),
+            el("div", {style:{fontSize:"11px",color:fi.text}}, fromSlot.period+" · "+fi.label)
           ),
-          el("div", {style:{fontSize:"16px",color:"#3498DB"}}, "⇄"),
-          el("div", {style:{background:"#fff",borderRadius:"6px",padding:"5px 8px",flex:"1"}},
-            el("div", {style:{fontSize:"9px",color:"#888"}}, "Ricevi"),
-            el("div", {style:{fontWeight:"700",fontSize:"11px",color:"#1A2744"}}, toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day),
-            el("div", {style:{fontSize:"10px",color:ti.text}}, toSlot.slot.period+"·"+ti.label)
+          el("div", {style:{fontSize:"20px",color:"#3498DB"}}, "⇄"),
+          el("div", {style:{background:"#fff",borderRadius:"7px",padding:"8px 10px",flex:"1"}},
+            el("div", {style:{fontSize:"9px",color:"#888",marginBottom:"2px"}}, "Ricevi"),
+            el("div", {style:{fontWeight:"700",fontSize:"12px",color:"#1A2744"}}, toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day),
+            el("div", {style:{fontSize:"11px",color:ti.text}}, toSlot.slot.period+" · "+ti.label)
           )
         )
       ));
     }
   }
 
-  const btnRow = el("div", {style:{display:"flex",gap:"7px"}});
-  btnRow.appendChild(el("button", {style:{flex:"1",padding:"10px",border:"1.5px solid #E8EEF5",borderRadius:"8px",background:"#fff",cursor:"pointer",fontWeight:"600",fontSize:"12px"},onclick:()=>{state.swapModal=null;render();}}, "Annulla"));
+  // Pulsanti
+  const btnRow = el("div", {style:{display:"flex",gap:"7px",marginTop:"4px"}});
+  btnRow.appendChild(el("button", {
+    style:{flex:"1",padding:"10px",border:"1.5px solid #E8EEF5",borderRadius:"8px",background:"#fff",cursor:"pointer",fontWeight:"600",fontSize:"12px"},
+    onclick: () => { state.swapModal=null; render(); }
+  }, "Annulla"));
+
   if (step===2 && toSlot) {
     btnRow.appendChild(el("button", {
       style:{flex:"2",padding:"10px",background:"#1A2744",color:"#fff",border:"none",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"12px"},
       onclick: () => {
         const fromDoc = getDoc(fromSlot.doctorId);
         const toDoc = getDoc(toDoctor.id);
+        const ti = SHIFTS[toSlot.slot.shift];
+        // Aggiungi notifica per il collega
         state.notifications.unshift({
           id: Date.now(), type:"swap", read:false,
           text: "🔄 "+fromDoc.name+" propone cambio con "+toDoc.name,
-          detail: fromDayInf.dayName+" "+fromDayInf.day+" · "+fromSlot.period+" · "+fi.label+" ⇄ "+toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day+" · "+toSlot.slot.period+" · "+SHIFTS[toSlot.slot.shift].label,
+          detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" ⇄ "+toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day+" · "+toSlot.slot.period+" · "+ti.label,
           fromId: fromSlot.doctorId, toId: toDoctor.id,
-          fromDk: fromDk, fromSi: fromSi,
-          fromMKey: MONTHS[state.monthIdx].year+"-"+MONTHS[state.monthIdx].month,
+          fromDk: fromDk, fromSi: fromSi, fromMKey: getMonthDataForKey(fromDk) ? Object.keys(state.schedules).find(k=>state.schedules[k][fromDk]) : "",
           toDk: toSlot.dk, toSi: toSlot.si, toMKey: toSlot.mKey
         });
         state.swapModal = null;
         scheduleSave();
-        showToast("Proposta di cambio inviata!");
+        showToast("Proposta di cambio inviata! Il collega vedrà la notifica.");
         render();
       }
-    }, "Invia proposta"));
+    }, "✉️ Invia proposta di cambio"));
   }
   box.appendChild(btnRow);
   overlay.appendChild(box);
   return overlay;
 }
+
 
 function buildAbsenceModal(me, monthData) {
   const {dk: key, si} = state.absenceModal;
@@ -1227,13 +1268,22 @@ function assignSelf(key, si) {
 }
 
 function approveSwap(notif) {
-  const a = state.schedules[notif.fromMKey][notif.fromDk].slots[notif.fromSi];
-  const b = state.schedules[notif.toMKey][notif.toDk].slots[notif.toSi];
-  const tmp = a.doctorId; a.doctorId = b.doctorId; b.doctorId = tmp;
-  notif.read = true; notif.approved = true;
-  scheduleSave();
-  showToast("Cambio effettuato ✓");
-  render();
+  try {
+    // Trova mKey corretto per fromDk
+    const fromMKey = Object.keys(state.schedules).find(k => state.schedules[k][notif.fromDk]);
+    const toMKey   = Object.keys(state.schedules).find(k => state.schedules[k][notif.toDk]);
+    if (!fromMKey || !toMKey) { showToast("Errore: turno non trovato","#E74C3C"); return; }
+    const a = state.schedules[fromMKey][notif.fromDk].slots[notif.fromSi];
+    const b = state.schedules[toMKey][notif.toDk].slots[notif.toSi];
+    if (!a || !b) { showToast("Errore: slot non trovato","#E74C3C"); return; }
+    const tmp = a.doctorId; a.doctorId = b.doctorId; b.doctorId = tmp;
+    notif.read = true; notif.approved = true;
+    scheduleSave();
+    showToast("✓ Cambio effettuato! Il calendario è stato aggiornato.");
+    render();
+  } catch(e) {
+    showToast("Errore nell'approvazione: "+e.message, "#E74C3C");
+  }
 }
 
 function countEmpty(monthData) {
