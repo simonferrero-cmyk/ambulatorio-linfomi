@@ -34,13 +34,14 @@ window.onunhandledrejection = function(e) {
 };
 // ── FIREBASE ──────────────────────────────────────────────────────────────────
 const FIREBASE_URL = "https://ambulatorio-linfoproliferative-default-rtdb.europe-west1.firebasedatabase.app/ambulatorio.json";
+const DATA_VERSION = 3; // Incrementa questo numero ad ogni modifica degli slot
 
-async function saveAll(data) {
+async function saveAll(schedules, notifications) {
   try {
     await fetch(FIREBASE_URL, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
+      body: JSON.stringify({ schedules, notifications, version: DATA_VERSION })
     });
   } catch(e) { console.error("Save error:", e); }
 }
@@ -177,7 +178,7 @@ let saveTimeout = null;
 function scheduleSave() {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
-    saveAll({ schedules: state.schedules, notifications: state.notifications });
+    saveAll(state.schedules, state.notifications);
   }, 1000);
 }
 
@@ -1366,19 +1367,39 @@ async function init() {
   try {
     const data = await loadAll();
     if (data) {
-      if (data.schedules) {
-        MONTHS.forEach(({year,month}) => {
-          const mKey = year+"-"+month;
-          if (data.schedules[mKey]) {
-            Object.keys(state.schedules[mKey]).forEach(key => {
-              if (data.schedules[mKey][key]) {
-                state.schedules[mKey][key].slots = data.schedules[mKey][key].slots;
-              }
-            });
-          }
-        });
+      // Controlla versione: se i dati salvati sono vecchi, ignorali e riparti
+      if (data.version && data.version >= DATA_VERSION) {
+        if (data.schedules) {
+          MONTHS.forEach(({year,month}) => {
+            const mKey = year+"-"+month;
+            if (data.schedules[mKey]) {
+              Object.keys(state.schedules[mKey]).forEach(key => {
+                if (data.schedules[mKey][key]) {
+                  // Merge: mantieni nuovi slot, aggiorna solo doctorId di quelli esistenti
+                  const savedDay = data.schedules[mKey][key];
+                  const localDay = state.schedules[mKey][key];
+                  if (savedDay.slots && localDay.slots) {
+                    localDay.slots.forEach((localSlot, i) => {
+                      const savedSlot = savedDay.slots.find(s => s.shift===localSlot.shift && s.period===localSlot.period);
+                      if (savedSlot) {
+                        localSlot.doctorId = savedSlot.doctorId;
+                        localSlot.refused = savedSlot.refused;
+                        localSlot.refusedBy = savedSlot.refusedBy;
+                        localSlot.refuseReason = savedSlot.refuseReason;
+                      }
+                    });
+                  }
+                }
+              });
+            }
+          });
+        }
+        if (data.notifications) state.notifications = data.notifications;
+      } else {
+        // Versione vecchia: ignora dati Firebase, salva i nuovi
+        console.log("Dati Firebase obsoleti, uso dati aggiornati");
+        await saveAll(state.schedules, state.notifications);
       }
-      if (data.notifications) state.notifications = data.notifications;
       render();
     }
   } catch(e) { console.log("Firebase non disponibile, uso dati locali"); }
