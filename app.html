@@ -67,16 +67,20 @@ const DOCTORS = [
 const SHIFTS = {
   la:  { label:"Linfomi A",      bg:"#FFF0F0", border:"#E74C3C", text:"#C0392B" },
   lb:  { label:"Linfomi B",      bg:"#EBF5FB", border:"#3498DB", text:"#1A5276" },
+  lc:  { label:"Linfomi C",      bg:"#F3F0FF", border:"#7D3C98", text:"#6C3483" },
+  ld:  { label:"Linfomi D",      bg:"#FFF5E6", border:"#D35400", text:"#B7470A" },
   pv:  { label:"Prime Visite 3", bg:"#F0FFF4", border:"#27AE60", text:"#1E8449" },
   bom: { label:"Turno BOM",      bg:"#FFFBEA", border:"#F39C12", text:"#9A6600" },
 };
 
 const WEEKLY = [
-  { day:1, period:"mattina",    shift:"la",  doctorId:3 },
+  { day:1, period:"mattina",    shift:"la",  doctorId:1 },
   { day:1, period:"pomeriggio", shift:"lb",  doctorId:4 },
+  { day:1, period:"pomeriggio", shift:"lc",  doctorId:6 },
   { day:2, period:"mattina",    shift:"la",  doctorId:3 },
   { day:2, period:"mattina",    shift:"bom", doctorId:null },
   { day:2, period:"pomeriggio", shift:"lb",  doctorId:5 },
+  { day:2, period:"pomeriggio", shift:"ld",  doctorId:7 },
   { day:3, period:"mattina",    shift:"lb",  doctorId:2 },
   { day:3, period:"pomeriggio", shift:"la",  doctorId:4 },
   { day:4, period:"mattina",    shift:"pv",  doctorId:2 },
