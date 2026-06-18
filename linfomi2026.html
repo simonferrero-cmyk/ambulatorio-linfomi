@@ -1198,15 +1198,53 @@ function buildSwapModal(me, monthData) {
   }
 
   // Pulsanti
-  const btnRow = el("div", {style:{display:"flex",gap:"7px",marginTop:"4px"}});
+  const btnRow = el("div", {style:{display:"flex",flexDirection:"column",gap:"7px",marginTop:"4px"}});
   btnRow.appendChild(el("button", {
-    style:{flex:"1",padding:"10px",border:"1.5px solid #E8EEF5",borderRadius:"8px",background:"#fff",cursor:"pointer",fontWeight:"600",fontSize:"12px"},
+    style:{width:"100%",padding:"10px",border:"1.5px solid #E8EEF5",borderRadius:"8px",background:"#fff",cursor:"pointer",fontWeight:"600",fontSize:"12px"},
     onclick: () => { state.swapModal=null; render(); }
   }, "Annulla"));
 
   if (step===2 && toSlot) {
+    // Bottone 1: cambia direttamente (accordo già preso)
     btnRow.appendChild(el("button", {
-      style:{flex:"2",padding:"10px",background:"#1A2744",color:"#fff",border:"none",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"12px"},
+      style:{width:"100%",padding:"11px",background:"#27AE60",color:"#fff",border:"none",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"12px"},
+      onclick: () => {
+        const fromDoc = getDoc(fromSlot.doctorId);
+        const toDoc = getDoc(toDoctor.id);
+        const fromMKeyFinal = Object.keys(state.schedules).find(k=>state.schedules[k][fromDk])||"";
+        if (toSlot.noSwap) {
+          // Copertura diretta: assegna subito il turno al collega
+          state.schedules[fromMKeyFinal][fromDk].slots[fromSi].doctorId = toDoctor.id;
+          state.notifications.unshift({
+            id: Date.now(), type:"info", read:false,
+            text: "✅ "+fromDoc.name+" ha ceduto un turno a "+toDoc.name,
+            detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" — trasferito direttamente",
+            fromId: fromSlot.doctorId, toId: toDoctor.id
+          });
+        } else {
+          // Cambio diretto: scambia subito i doctorId
+          const toMKeyFinal = Object.keys(state.schedules).find(k=>state.schedules[k][toSlot.dk])||"";
+          const a = state.schedules[fromMKeyFinal][fromDk].slots[fromSi];
+          const b = state.schedules[toMKeyFinal][toSlot.dk].slots[toSlot.si];
+          const tmp = a.doctorId; a.doctorId = b.doctorId; b.doctorId = tmp;
+          const ti = SHIFTS[toSlot.slot.shift];
+          state.notifications.unshift({
+            id: Date.now(), type:"info", read:false,
+            text: "✅ Cambio diretto: "+fromDoc.name+" ↔ "+toDoc.name,
+            detail: fromDay.dayName+" "+fromDay.day+" · "+fromSlot.period+" · "+fi.label+" ⇄ "+toSlot.dayInfo.dayName+" "+toSlot.dayInfo.day+" · "+toSlot.slot.period+" · "+ti.label,
+            fromId: fromSlot.doctorId, toId: toDoctor.id
+          });
+        }
+        state.swapModal = null;
+        scheduleSave();
+        showToast("✅ Cambio effettuato immediatamente!");
+        render();
+      }
+    }, "✅ Cambia direttamente (accordo già preso)"));
+
+    // Bottone 2: chiedi al collega (richiede approvazione)
+    btnRow.appendChild(el("button", {
+      style:{width:"100%",padding:"11px",background:"#1A2744",color:"#fff",border:"none",borderRadius:"8px",cursor:"pointer",fontWeight:"700",fontSize:"12px"},
       onclick: () => {
         const fromDoc = getDoc(fromSlot.doctorId);
         const toDoc = getDoc(toDoctor.id);
