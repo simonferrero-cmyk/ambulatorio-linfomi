@@ -500,13 +500,17 @@ function buildMonthView(me, monthData, curKey) {
         const sl = SHIFTS[s.shift];
         const doc = getDoc(s.doctorId);
         const mine = s.doctorId === state.loggedInId;
-        const badge = el("div", {style:{background:sl.bg,border:"2.5px solid "+(mine?me.color:sl.border),borderRadius:"6px",padding:"4px 5px",marginBottom:"3px",minWidth:"0"}},
+        const badge = el("div", {style:{
+            background: mine ? me.color : sl.bg,
+            border: "2.5px solid "+(mine ? me.color : sl.border),
+            borderRadius:"6px",padding:"4px 5px",marginBottom:"3px",minWidth:"0"
+          }},
           el("div", {style:{display:"flex",alignItems:"center",gap:"4px",marginBottom:"2px"}},
-            el("span", {style:{width:"8px",height:"8px",borderRadius:"50%",background:doc.color,flexShrink:"0",display:"inline-block"}}),
-            el("span", {style:{fontSize:"11px",fontWeight:"700",color:"#1A2744"}}, doc.initials),
-            mine ? el("span", {style:{fontSize:"8px",background:me.color,color:"#fff",borderRadius:"3px",padding:"0 3px",flexShrink:"0"}}, "TU") : null
+            mine ? null : el("span", {style:{width:"8px",height:"8px",borderRadius:"50%",background:doc.color,flexShrink:"0",display:"inline-block"}}),
+            el("span", {style:{fontSize:"11px",fontWeight:"700",color: mine ? "#fff" : "#1A2744"}}, doc.initials),
+            mine ? el("span", {style:{fontSize:"8px",background:"rgba(255,255,255,0.3)",color:"#fff",borderRadius:"3px",padding:"0 3px",flexShrink:"0"}}, "TU") : null
           ),
-          el("div", {style:{fontSize:"10px",fontWeight:"700",color:sl.text,paddingLeft:"12px"}}, sl.label)
+          el("div", {style:{fontSize:"10px",fontWeight:"700",color: mine ? "#fff" : sl.text,paddingLeft: mine ? "0" : "12px"}}, sl.label)
         );
         cell.appendChild(badge);
       });
@@ -618,7 +622,7 @@ function buildWeekView(me) {
           const isMe = slot.doctorId===state.loggedInId;
           const gIdx = info.slots.indexOf(slot);
           const badge = el("div", {
-            style:{background:isEmpty?"#FDECEA":sl.bg,border:"2px solid "+(isEmpty?"#E74C3C":isMe?me.color:sl.border),borderRadius:"6px",padding:"4px 5px",marginBottom:"3px",cursor:(isEmpty||isMe)?"pointer":"default"},
+            style:{background:isEmpty?"#FDECEA":isMe?me.color:sl.bg,border:"2px solid "+(isEmpty?"#E74C3C":isMe?me.color:sl.border),borderRadius:"6px",padding:"4px 5px",marginBottom:"3px",cursor:(isEmpty||isMe)?"pointer":"default"},
             onclick: () => { if(isEmpty) assignSelf(key,gIdx); else if(isMe) { state.swapModal={dk:key,si:gIdx}; render(); } }
           });
           if (isEmpty) {
@@ -626,11 +630,11 @@ function buildWeekView(me) {
             badge.appendChild(el("div", {style:{fontSize:"8px",fontWeight:"700",color:"#C0392B",marginTop:"1px"}}, sl.label));
           } else {
             badge.appendChild(el("div", {style:{display:"flex",alignItems:"center",gap:"3px",marginBottom:"2px"}},
-              el("span", {style:{width:"7px",height:"7px",borderRadius:"50%",background:doc.color,flexShrink:"0"}}),
-              el("span", {style:{fontSize:"10px",fontWeight:"700",color:"#1A2744"}}, doc.initials),
-              isMe ? el("span", {style:{fontSize:"7px",background:me.color,color:"#fff",borderRadius:"3px",padding:"0 3px"}}, "TU") : null
+              isMe ? null : el("span", {style:{width:"7px",height:"7px",borderRadius:"50%",background:doc.color,flexShrink:"0"}}),
+              el("span", {style:{fontSize:"10px",fontWeight:"700",color:isMe?"#fff":"#1A2744"}}, doc.initials),
+              isMe ? el("span", {style:{fontSize:"7px",background:"rgba(255,255,255,0.3)",color:"#fff",borderRadius:"3px",padding:"0 3px"}}, "TU") : null
             ));
-            badge.appendChild(el("div", {style:{fontSize:"9px",fontWeight:"700",color:sl.text,paddingLeft:"10px"}}, sl.label));
+            badge.appendChild(el("div", {style:{fontSize:"9px",fontWeight:"700",color:isMe?"#fff":sl.text,paddingLeft:isMe?"0":"10px"}}, sl.label));
             if (isMe) badge.appendChild(el("div", {style:{fontSize:"7px",color:"#aaa",paddingLeft:"10px"}}, "🔄 cambio"));
           }
           cell.appendChild(badge);
