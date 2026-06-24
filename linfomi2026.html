@@ -34,7 +34,7 @@ window.onunhandledrejection = function(e) {
 };
 // ── FIREBASE ──────────────────────────────────────────────────────────────────
 const FIREBASE_URL = "https://ambulatorio-linfoproliferative-default-rtdb.europe-west1.firebasedatabase.app/ambulatorio.json";
-const DATA_VERSION = 3; // Incrementa questo numero ad ogni modifica degli slot
+const DATA_VERSION = 4; // Incrementa questo numero ad ogni modifica degli slot
 
 async function saveAll(schedules, notifications) {
   try {
@@ -75,19 +75,28 @@ const SHIFTS = {
 };
 
 const WEEKLY = [
-  { day:1, period:"mattina",    shift:"la",  doctorId:1 },
-  { day:1, period:"pomeriggio", shift:"lb",  doctorId:4 },
-  { day:1, period:"pomeriggio", shift:"lc",  doctorId:6 },
-  { day:2, period:"mattina",    shift:"la",  doctorId:3 },
-  { day:2, period:"mattina",    shift:"bom", doctorId:null },
-  { day:2, period:"pomeriggio", shift:"lb",  doctorId:5 },
-  { day:2, period:"pomeriggio", shift:"ld",  doctorId:7 },
-  { day:3, period:"mattina",    shift:"lb",  doctorId:2 },
-  { day:3, period:"pomeriggio", shift:"la",  doctorId:4 },
-  { day:4, period:"mattina",    shift:"pv",  doctorId:2 },
-  { day:4, period:"mattina",    shift:"lb",  doctorId:2 },
-  { day:5, period:"mattina",    shift:"la",  doctorId:5 },
-  { day:5, period:"pomeriggio", shift:"pv",  doctorId:5 },
+  // LUNEDÌ
+  { day:1, period:"mattina",    shift:"la",  doctorId:1 },  // Linfomi A - Cavallo
+  { day:1, period:"pomeriggio", shift:"lb",  doctorId:4 },  // Linfomi B - Ragaini
+  { day:1, period:"pomeriggio", shift:"ld",  doctorId:7 },  // Linfomi D - Perutelli
+  // MARTEDÌ
+  { day:2, period:"mattina",    shift:"la",  doctorId:3 },  // Linfomi A - Clerico
+  { day:2, period:"mattina",    shift:"bom", doctorId:null },// Turno BOM
+  { day:2, period:"pomeriggio", shift:"lb",  doctorId:5 },  // Linfomi B - Consoli
+  { day:2, period:"pomeriggio", shift:"lc",  doctorId:6 },  // Linfomi C - Vitale
+  // MERCOLEDÌ
+  { day:3, period:"mattina",    shift:"lb",  doctorId:2 },  // Linfomi B - Ferrero
+  { day:3, period:"mattina",    shift:"ld",  doctorId:5 },  // Linfomi D - Consoli
+  { day:3, period:"pomeriggio", shift:"la",  doctorId:4 },  // Linfomi A - Ragaini
+  { day:3, period:"pomeriggio", shift:"lc",  doctorId:7 },  // Linfomi C - Perutelli
+  // GIOVEDÌ
+  { day:4, period:"mattina",    shift:"pv",  doctorId:2 },  // Prime Visite - Ferrero
+  { day:4, period:"mattina",    shift:"lb",  doctorId:2 },  // Linfomi B - Ferrero
+  { day:4, period:"mattina",    shift:"ld",  doctorId:6 },  // Linfomi D - Vitale
+  // VENERDÌ
+  { day:5, period:"mattina",    shift:"la",  doctorId:5 },  // Linfomi A - Consoli
+  { day:5, period:"mattina",    shift:"lc",  doctorId:6 },  // Linfomi C - Vitale
+  { day:5, period:"pomeriggio", shift:"pv",  doctorId:5 },  // Prime Visite - Consoli
 ];
 
 const MONTHS = [
@@ -623,7 +632,7 @@ function buildWeekView(me) {
           const gIdx = info.slots.indexOf(slot);
           const badge = el("div", {
             style:{background:isEmpty?"#FDECEA":isMe?me.color:sl.bg,border:"2px solid "+(isEmpty?"#E74C3C":isMe?me.color:sl.border),borderRadius:"6px",padding:"4px 5px",marginBottom:"3px",cursor:(isEmpty||isMe)?"pointer":"default"},
-            onclick: () => { if(isEmpty) assignSelf(key,gIdx); else if(isMe) { state.swapModal={dk:key,si:gIdx}; render(); } }
+            onclick: () => { if(isEmpty) assignSelf(key,gIdx); else { state.swapModal={dk:key,si:gIdx}; render(); } }
           });
           if (isEmpty) {
             badge.appendChild(el("div", {style:{fontSize:"8px",fontWeight:"800",color:"#E74C3C"}}, "🚨 SCOPERTO"));
@@ -687,7 +696,8 @@ function buildDayDetail(me, monthData, key) {
         row.appendChild(info2);
         const btns = el("div", {style:{display:"flex",gap:"5px",flexShrink:"0"}});
         if (isEmpty) btns.appendChild(el("button", {style:{background:"#27AE60",color:"#fff",border:"none",borderRadius:"6px",padding:"5px 8px",cursor:"pointer",fontSize:"10px",fontWeight:"700"},onclick:()=>assignSelf(key,gi)}, "Copri"));
-        if (isMe) btns.appendChild(el("button", {style:{background:"#1A2744",color:"#fff",border:"none",borderRadius:"6px",padding:"5px 8px",cursor:"pointer",fontSize:"10px",fontWeight:"700"},onclick:()=>{state.swapModal={dk:key,si:gi};render();}}, "🔄"));
+        // 🔄 Cambio: disponibile per TUTTI gli slot (miei o altrui) - cambi illimitati
+        btns.appendChild(el("button", {style:{background:"#1A2744",color:"#fff",border:"none",borderRadius:"6px",padding:"5px 8px",cursor:"pointer",fontSize:"10px",fontWeight:"700"},onclick:()=>{state.swapModal={dk:key,si:gi};render();}}, "🔄"));
         if (isMe) btns.appendChild(el("button", {style:{background:"#FDECEA",color:"#E74C3C",border:"2px solid #E74C3C",borderRadius:"6px",padding:"5px 8px",cursor:"pointer",fontSize:"10px",fontWeight:"700"},onclick:()=>{state.absenceModal={dk:key,si:gi};render();}}, "🚫"));
         row.appendChild(btns);
         pBox.appendChild(row);
